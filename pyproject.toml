@@ -1,0 +1,16 @@
+[project]
+name = "humor-generation"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ALL"]
+
+[dependency-groups]
+dev = ["ruff>=0.13.0"]
