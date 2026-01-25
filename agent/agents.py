@@ -5,18 +5,11 @@ from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from agent.models import (
-    AssociationSet,
-    ContextAnalysis,
-    JokeDraftSet,
-    JokeSelection,
-    TemplateAnalysis,
-)
 from agent.prompts import (
-    ASSOCIATION_SYSTEM_PROMPT,
+    ANGLES_SYSTEM_PROMPT,
     CONTEXT_SYSTEM_PROMPT,
-    DRAFT_SYSTEM_PROMPT,
-    JUDGE_SYSTEM_PROMPT,
+    DRAFTS_SYSTEM_PROMPT,
+    SELECTION_SYSTEM_PROMPT,
     TEMPLATE_SYSTEM_PROMPT,
 )
 from agent.settings import settings
@@ -26,9 +19,9 @@ from agent.settings import settings
 class Agents:
     template: Agent
     context: Agent
-    associations: Agent
+    angles: Agent
     drafts: Agent
-    judge: Agent
+    selection: Agent
 
 
 def build_openai_client() -> OpenAI:
@@ -41,39 +34,38 @@ def build_openai_model(model_name: str) -> OpenAIChatModel:
 
 
 def get_agents(model_name: str) -> Agents:
-    client = build_openai_client()
     model = build_openai_model(model_name)
 
     template_agent = Agent(
         model=model,
-        output_type=TemplateAnalysis,
+        output_type=str,
         system_prompt=TEMPLATE_SYSTEM_PROMPT,
     )
     context_agent = Agent(
         model=model,
-        output_type=ContextAnalysis,
+        output_type=str,
         system_prompt=CONTEXT_SYSTEM_PROMPT,
     )
-    association_agent = Agent(
+    angles_agent = Agent(
         model=model,
-        output_type=AssociationSet,
-        system_prompt=ASSOCIATION_SYSTEM_PROMPT,
+        output_type=str,
+        system_prompt=ANGLES_SYSTEM_PROMPT,
     )
     draft_agent = Agent(
         model=model,
-        output_type=JokeDraftSet,
-        system_prompt=DRAFT_SYSTEM_PROMPT,
+        output_type=str,
+        system_prompt=DRAFTS_SYSTEM_PROMPT,
     )
-    judge_agent = Agent(
+    selection_agent = Agent(
         model=model,
-        output_type=JokeSelection,
-        system_prompt=JUDGE_SYSTEM_PROMPT,
+        output_type=str,
+        system_prompt=SELECTION_SYSTEM_PROMPT,
     )
 
     return Agents(
         template=template_agent,
         context=context_agent,
-        associations=association_agent,
+        angles=angles_agent,
         drafts=draft_agent,
-        judge=judge_agent,
+        selection=selection_agent,
     )

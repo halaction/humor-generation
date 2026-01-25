@@ -15,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Humor generation agent")
     parser.add_argument("--model", type=str, default=None, help="Model name to use.")
     parser.add_argument("--input", type=str, default=None, help="Input topic or constraint.")
-    parser.add_argument("--k", type=int, default=4, help="Number of associations/jokes to generate.")
+    parser.add_argument("--k", type=int, default=4, help="Number of angles/drafts to generate.")
     return parser
 
 
@@ -38,7 +38,7 @@ def main() -> None:
 
     summary = run_pipeline(agents, config, run_logger)
 
-    sys.stdout.write(f"{summary.selection.best_text}\n")
+    sys.stdout.write(f"{summary.selection}\n")
 
 
 if __name__ == "__main__":
