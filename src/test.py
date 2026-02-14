@@ -1,6 +1,6 @@
-from src.dataset import Dataset
+from src.dataset.jokes import JokesDataset
 
 if __name__ == "__main__":
-    dataset = Dataset()
+    dataset = JokesDataset()
 
     dataset._collect_data()

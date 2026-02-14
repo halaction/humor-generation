@@ -1,5 +1,5 @@
-import gzip
 import csv
+import gzip
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,7 +14,7 @@ from src.paths import DATA_DIR
 logger = get_logger(__name__)
 
 
-class Dataset:
+class JokesDataset:
     def __init__(self) -> None: ...
 
     @staticmethod
@@ -203,7 +203,7 @@ class Dataset:
             global_ids,
         )
 
-        output_path = DATA_DIR / "data.parquet"
+        output_path = DATA_DIR / "jokes.parquet"
         pq.write_table(combined_table, output_path)
 
         logger.info("collect.done", rows=combined_table.num_rows, output_path=str(output_path))
