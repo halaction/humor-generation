@@ -11,8 +11,8 @@ from src.templates import environment
 
 class ExtractionConfig(BaseModel):
     model: str
-    temperature: float = 0.2
-    max_completion_tokens: int = 300
+    temperature: float
+    max_output_tokens: int
 
 
 class SeedExtractionResult(BaseModel):
@@ -28,7 +28,8 @@ class ExtractionPipeline:
         config = ExtractionConfig.model_validate(payload)
 
         self.config = config
-        self.template = environment.get_template("extraction.j2")
+        self.system_template = environment.get_template("extraction_system.j2")
+        self.user_template = environment.get_template("extraction_user.j2")
 
         self.client = OpenAI(
             base_url=settings.OPENAI_BASE_URL,
@@ -37,29 +38,32 @@ class ExtractionPipeline:
         )
 
     def run(self, joke: str) -> SeedExtractionResult:
-        user_prompt = self.template.render(joke=joke.strip())
-        response = self.client.chat.completions.create(
+        system_prompt = self.system_template.render()
+        user_prompt = self.user_template.render(joke=joke.strip())
+
+        response = self.client.responses.parse(
             model=self.config.model,
-            messages=[
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "seed_extraction_result",
-                    "schema": SeedExtractionResult.model_json_schema(),
-                    "strict": True,
+            input=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
                 },
-            },
+                {
+                    "role": "user",
+                    "content": user_prompt,
+                },
+            ],
+            text_format=SeedExtractionResult,
             temperature=self.config.temperature,
-            max_completion_tokens=self.config.max_completion_tokens,
+            max_output_tokens=self.config.max_output_tokens,
         )
 
         print(response.to_json())
 
-        content = response.choices[0].message.content
+        content = response.output_parsed
 
         if not content:
             raise ValueError("Model returned empty content.")
 
-        return SeedExtractionResult.model_validate_json(content)
+        # return SeedExtractionResult.model_validate_json(content)
+        return content
