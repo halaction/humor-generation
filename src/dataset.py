@@ -16,7 +16,8 @@ class Dataset:
     @staticmethod
     def _download_file(url: str, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
+
+        if path.exists() or path.with_suffix("").exists():
             logger.debug("download.skip", url=url, path=str(path), reason="exists")
             return path
 
@@ -41,12 +42,14 @@ class Dataset:
     def _unzip_gz_file(path: Path) -> Path:
         extracted_path = path.with_suffix("")
         if extracted_path.exists():
+            path.unlink(missing_ok=True)
             logger.debug("unzip.skip", source=str(path), destination=str(extracted_path), reason="exists")
             return extracted_path
 
         logger.info("unzip.start", source=str(path), destination=str(extracted_path))
         with gzip.open(path, "rb") as source, extracted_path.open("wb") as destination:
             destination.write(source.read())
+        path.unlink(missing_ok=True)
         logger.info("unzip.done", source=str(path), destination=str(extracted_path))
 
         return extracted_path
