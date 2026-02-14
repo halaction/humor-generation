@@ -197,7 +197,7 @@ class JokesDataset:
         combined_table = pa.concat_tables([short_jokes_table, r_jokes_table])
 
         global_ids = pc.cast(pa.array(range(combined_table.num_rows), type=pa.int64()), pa.string())
-        combined_table = combined_table.add_column(
+        combined_table = combined_table.set_column(
             combined_table.schema.get_field_index("id"),
             "id",
             global_ids,
