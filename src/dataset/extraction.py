@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from openai import OpenAI
@@ -13,10 +14,12 @@ class ExtractionConfig(BaseModel):
     model: str
     temperature: float
     max_output_tokens: int
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"]
+    reasoning_summary: Literal["auto", "concise", "detailed"]
 
 
-class SeedExtractionResult(BaseModel):
-    seeds: list[str] = Field(min_length=1, max_length=3)
+class ExtractionResult(BaseModel):
+    keywords: list[str] = Field(min_length=1, max_length=3)
 
 
 class ExtractionPipeline:
@@ -37,25 +40,23 @@ class ExtractionPipeline:
             timeout=60,
         )
 
-    def run(self, joke: str) -> SeedExtractionResult:
+    def run(self, joke: str) -> ExtractionResult:
         system_prompt = self.system_template.render()
         user_prompt = self.user_template.render(joke=joke.strip())
 
         response = self.client.responses.parse(
             model=self.config.model,
             input=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": user_prompt,
-                },
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
-            text_format=SeedExtractionResult,
+            text_format=ExtractionResult,
             temperature=self.config.temperature,
             max_output_tokens=self.config.max_output_tokens,
+            reasoning={
+                "effort": self.config.reasoning_effort,
+                "summary": self.config.reasoning_summary,
+            },
         )
 
         print(response.to_json())
@@ -65,5 +66,4 @@ class ExtractionPipeline:
         if not content:
             raise ValueError("Model returned empty content.")
 
-        # return SeedExtractionResult.model_validate_json(content)
         return content
