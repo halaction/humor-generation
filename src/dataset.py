@@ -1,7 +1,11 @@
 import gzip
+import csv
 from pathlib import Path
 from urllib.parse import urlparse
 
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import requests
 
 from src.logging import get_logger
@@ -86,3 +90,121 @@ class Dataset:
             self._unzip_gz_file(gz_path)
 
         return destination_dir
+
+    @staticmethod
+    def _write_parquet(records: list[dict[str, str]], destination: Path) -> Path:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        table = pa.Table.from_pylist(
+            records,
+            schema=pa.schema(
+                [
+                    pa.field("id", pa.string()),
+                    pa.field("text", pa.string()),
+                    pa.field("source_name", pa.string()),
+                    pa.field("source_filename", pa.string()),
+                    pa.field("source_id", pa.string()),
+                ]
+            ),
+        )
+        pq.write_table(table, destination)
+        return destination
+
+    def _preprocess_short_jokes(self, destination_dir: Path) -> Path:
+        input_path = destination_dir / "shortjokes.csv"
+        output_path = destination_dir / "data.parquet"
+
+        logger.info(
+            "preprocess.start",
+            dataset="short-jokes",
+            source_path=str(input_path),
+            output_path=str(output_path),
+        )
+
+        records: list[dict[str, str]] = []
+        with input_path.open(encoding="utf-8", newline="") as input_file:
+            reader = csv.DictReader(input_file)
+            for row in reader:
+                original_id = (row.get("ID") or "").strip()
+                text = (row.get("Joke") or "").strip()
+
+                if not text:
+                    continue
+
+                source_name = "short-jokes"
+                source_filename = input_path.name
+                source_id = original_id
+                records.append(
+                    {
+                        "id": "",
+                        "text": text,
+                        "source_name": source_name,
+                        "source_filename": source_filename,
+                        "source_id": source_id,
+                    }
+                )
+
+        self._write_parquet(records=records, destination=output_path)
+        logger.info("preprocess.done", dataset="short-jokes", rows=len(records), output_path=str(output_path))
+        return output_path
+
+    def _preprocess_r_jokes(self, destination_dir: Path) -> Path:
+        output_path = destination_dir / "data.parquet"
+
+        logger.info(
+            "preprocess.start", dataset="r-jokes", source_path=str(destination_dir), output_path=str(output_path)
+        )
+
+        records: list[dict[str, str]] = []
+        for split in ("train", "dev", "test"):
+            input_path = destination_dir / f"{split}.tsv"
+            with input_path.open(encoding="utf-8", newline="") as input_file:
+                reader = csv.reader(input_file, delimiter="\t")
+                for original_id, row in enumerate(reader, start=1):
+                    if not row:
+                        continue
+
+                    _score = row[0].strip()
+                    text = "\t".join(row[1:]).strip()
+                    if not text:
+                        continue
+
+                    source_name = "r-jokes"
+                    source_filename = input_path.name
+                    source_id = str(original_id)
+                    records.append(
+                        {
+                            "id": "",
+                            "text": text,
+                            "source_name": source_name,
+                            "source_filename": source_filename,
+                            "source_id": source_id,
+                        }
+                    )
+
+        self._write_parquet(records=records, destination=output_path)
+        logger.info("preprocess.done", dataset="r-jokes", rows=len(records), output_path=str(output_path))
+        return output_path
+
+    def _collect_data(self) -> Path:
+        short_jokes_dir = self._download_short_jokes()
+        short_jokes_path = self._preprocess_short_jokes(short_jokes_dir)
+
+        r_jokes_dir = self._download_r_jokes()
+        r_jokes_path = self._preprocess_r_jokes(r_jokes_dir)
+
+        short_jokes_table = pq.read_table(short_jokes_path)
+        r_jokes_table = pq.read_table(r_jokes_path)
+        combined_table = pa.concat_tables([short_jokes_table, r_jokes_table])
+
+        global_ids = pc.cast(pa.array(range(combined_table.num_rows), type=pa.int64()), pa.string())
+        combined_table = combined_table.add_column(
+            combined_table.schema.get_field_index("id"),
+            "id",
+            global_ids,
+        )
+
+        output_path = DATA_DIR / "data.parquet"
+        pq.write_table(combined_table, output_path)
+
+        logger.info("collect.done", rows=combined_table.num_rows, output_path=str(output_path))
+        return output_path
