@@ -1,13 +1,16 @@
 import structlog
 
+from src.settings import settings
 
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso", utc=True),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer(),
-    ],
-)
+
+if not settings.DEV:
+    structlog.configure(
+        processors=[
+            structlog.processors.TimeStamper(fmt="iso", utc=True),
+            structlog.processors.add_log_level,
+            structlog.processors.JSONRenderer(),
+        ],
+    )
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
