@@ -1,0 +1,3 @@
+model: gpt-5-nano
+temperature: 0.0
+max_completion_tokens: 10000
