@@ -4,28 +4,17 @@
 \providecommand\HyField@AuxAddToCoFields[2]{}
 \@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {2}Methodology}{3}{section.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Dataset collection: ``joke \(\rightarrow \) seed(s) \(\rightarrow \) multi-reference prompt''}{3}{subsection.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Formal framework and notation (preliminaries)}{4}{subsection.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}Policy with latent ``reasoning'' variable}{4}{subsubsection.2.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}RLVR: objective and REINFORCE gradient (step-by-step)}{4}{subsection.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.1}Single-reference RLVR objective}{4}{subsubsection.2.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.3.2}REINFORCE gradient for RLVR}{4}{subsubsection.2.3.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}VeriFree: objective equivalence and gradient decomposition}{5}{subsection.2.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.1}VeriFree objective (single reference)}{5}{subsubsection.2.4.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.2}Gradient of VeriFree (explicit derivation)}{5}{subsubsection.2.4.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.4.3}Why ``baselining is only valid for the first term'' (precise statement)}{6}{subsubsection.2.4.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Multi-reference VeriFree (MRVF): objective, reward, and key properties}{6}{subsection.2.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.5.1}Multi-reference objective}{6}{subsubsection.2.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.5.2}Why \(\DOTSB \sum@ \slimits@ \) is principled, but \(\max \) is problematic}{7}{subsubsection.2.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Random reference subsampling and scale-invariance (explicit expectation proof)}{7}{subsection.2.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}The positive--unlabeled (PU) problem and why KL is not optional}{8}{subsection.2.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.1}Where the bias comes from}{8}{subsubsection.2.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.7.2}KL-constrained optimization (formal statement)}{8}{subsubsection.2.7.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.8}Training plan: GRPO + RLOO-style baselines for \(z\), plus reference-logprob terms}{8}{subsection.2.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.1}What is actually optimized (proposed final objective)}{8}{subsubsection.2.8.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.8.2}Why this is not ``just SFT''}{9}{subsubsection.2.8.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}Experiments (planned)}{10}{section.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Baselines}{10}{subsection.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Evaluation plan}{10}{subsection.3.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Primary ablations (to test the central hypothesis)}{11}{subsection.3.3}\protected@file@percent }
-\gdef \@abspage@last{11}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Dataset collection}{3}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Theoretical framework}{3}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.1}Notation}{3}{subsubsection.2.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.2}RLVR}{4}{subsubsection.2.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.3}VeriFree}{4}{subsubsection.2.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.4}Multi-reference VeriFree}{5}{subsubsection.2.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.5}The Consequences of Incompleteness}{6}{subsubsection.2.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.6}Training Procedure}{6}{subsubsection.2.2.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.2.7}Note on Baselining}{7}{subsubsection.2.2.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}[WIP] Experiments}{7}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Baselines}{7}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Evaluation plan}{8}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Ablations}{8}{subsection.3.3}\protected@file@percent }
+\gdef \@abspage@last{8}
