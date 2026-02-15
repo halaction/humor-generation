@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Literal
 
@@ -44,26 +45,41 @@ class ExtractionPipeline:
         system_prompt = self.system_template.render()
         user_prompt = self.user_template.render(joke=joke.strip())
 
-        response = self.client.responses.parse(
+        response = self.client.chat.completions.create(
             model=self.config.model,
-            input=[
+            messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            text_format=ExtractionResult,
             temperature=self.config.temperature,
-            max_output_tokens=self.config.max_output_tokens,
-            reasoning={
-                "effort": self.config.reasoning_effort,
-                "summary": self.config.reasoning_summary,
+            max_completion_tokens=self.config.max_output_tokens,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "extraction_result",
+                    "strict": True,
+                    "schema": ExtractionResult.model_json_schema(),
+                },
             },
+            # extra_body={
+            #     "reasoning": {
+            #         "effort": self.config.reasoning_effort,
+            #         "summary": self.config.reasoning_summary,
+            #     },
+            # },
         )
 
-        print(response.to_json())
+        print()
+        print(response.usage)
 
-        content = response.output_parsed
-
-        if not content:
+        if not response.choices:
             raise ValueError("Model returned empty content.")
 
-        return content
+        message = response.choices[0].message
+        if not message.content:
+            raise ValueError("Model returned empty content.")
+
+        print(message)
+
+        content = json.loads(message.content)
+        return ExtractionResult.model_validate(content)
