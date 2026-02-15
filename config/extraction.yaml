@@ -1,5 +1,5 @@
 model: gpt-5-nano
 temperature: 0.0
-max_output_tokens: 300
+max_output_tokens: 256
 reasoning_effort: minimal
 reasoning_summary: concise
