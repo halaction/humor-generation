@@ -1,3 +1,5 @@
+import asyncio
+
 from src.dataset.extraction import ExtractionPipeline
 
 if __name__ == "__main__":
@@ -16,9 +18,10 @@ if __name__ == "__main__":
         "Was Einstein's theory good? Relatively.",
     ]
 
-    for joke in jokes:
-        result = pipeline.run(joke)
+    inputs = jokes
+    results = asyncio.run(pipeline.run(inputs))
 
+    for joke, result in zip(jokes, results, strict=True):
         print(joke)
         print(result.model_dump())
         print()
