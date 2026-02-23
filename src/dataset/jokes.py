@@ -3,17 +3,21 @@ import gzip
 from pathlib import Path
 from urllib.parse import urlparse
 
+from datasets import load_dataset
+from huggingface_hub import HfApi
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import requests
-from huggingface_hub import HfApi
 
 from src.logging import get_logger
 from src.paths import DATA_DIR
 from src.settings import settings
 
 logger = get_logger(__name__)
+
+HF_DATASET_REPO_ID = "halaction/humor-generation"
+JOKES_CONFIG_NAME = "jokes"
 
 
 def _download_file(url: str, path: Path) -> Path:
@@ -100,7 +104,13 @@ def _write_parquet(records: list[dict[str, str]], destination: Path) -> Path:
             ]
         ),
     )
-    pq.write_table(table, destination)
+    pq.write_table(
+        table,
+        destination,
+        compression="zstd",
+        use_content_defined_chunking=True,
+        write_page_index=True,
+    )
     return destination
 
 
@@ -180,25 +190,44 @@ def build_jokes_dataset() -> Path:
     combined_table = combined_table.set_column(combined_table.schema.get_field_index("id"), "id", global_ids)
 
     output_path = DATA_DIR / "jokes.parquet"
-    pq.write_table(combined_table, output_path)
-    logger.info("collect.done", rows=combined_table.num_rows, output_path=str(output_path))
+    pq.write_table(
+        combined_table,
+        output_path,
+        compression="zstd",
+        use_content_defined_chunking=True,
+        write_page_index=True,
+    )
+    logger.info("build.done", rows=combined_table.num_rows, output_path=str(output_path))
     return output_path
 
 
 def publish_jokes_dataset(
-    repo_id: str,
     parquet_path: Path | None = None,
-    path_in_repo: str = "data/jokes.parquet",
+    repo_id: str = HF_DATASET_REPO_ID,
+    config_name: str = JOKES_CONFIG_NAME,
+    split: str = "train",
     private: bool = False,
-) -> str:
+) -> tuple[str, str]:
     target_path = parquet_path or build_jokes_dataset()
-    api = HfApi(token=settings.HUGGINGFACE_TOKEN)
-    api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
-    api.upload_file(
-        path_or_fileobj=str(target_path),
-        path_in_repo=path_in_repo,
+    dataset = load_dataset("parquet", data_files=str(target_path), split=split)
+    api = HfApi(token=settings.HF_TOKEN)
+    api.create_repo(
         repo_id=repo_id,
         repo_type="dataset",
+        private=private,
+        exist_ok=True,
     )
-    logger.info("huggingface.upload.done", repo_id=repo_id, parquet_path=str(target_path), path_in_repo=path_in_repo)
-    return path_in_repo
+    dataset.push_to_hub(
+        repo_id=repo_id,
+        config_name=config_name,
+        token=settings.HF_TOKEN,
+        private=private,
+    )
+    logger.info(
+        "publish.done",
+        repo_id=repo_id,
+        parquet_path=str(target_path),
+        config_name=config_name,
+        split=split,
+    )
+    return repo_id, config_name
