@@ -1,5 +1,6 @@
+# model: qwen/qwen3-next-80b-a3b-thinking
 model: qwen/qwen3-next-80b-a3b-instruct
-temperature: 0.0
-max_output_tokens: 128
+temperature: 0
+max_output_tokens: 512
 reasoning_effort: low
 reasoning_summary: concise

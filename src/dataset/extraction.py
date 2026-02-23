@@ -70,7 +70,7 @@ class ExtractionPipeline:
         )
 
         print()
-        print(response.usage)
+        # print(response.usage)
 
         if not response.choices:
             raise ValueError("Model returned empty content.")
@@ -79,7 +79,7 @@ class ExtractionPipeline:
         if not message.content:
             raise ValueError("Model returned empty content.")
 
-        print(message)
+        # print(message)
 
         content = json.loads(message.content)
         return ExtractionResult.model_validate(content)

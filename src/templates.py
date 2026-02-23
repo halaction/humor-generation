@@ -4,7 +4,7 @@ from src.paths import TEMPLATES_DIR
 
 environment = Environment(
     loader=FileSystemLoader(TEMPLATES_DIR),
-    autoescape=True,
+    autoescape=False,
     undefined=StrictUndefined,
     trim_blocks=True,
     lstrip_blocks=True,
