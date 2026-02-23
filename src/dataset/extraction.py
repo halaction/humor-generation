@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
+from datasets import Dataset
 import yaml
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
@@ -26,7 +27,7 @@ class NormalizeResult(BaseModel):
     keywords: list[str] = Field(min_length=1, max_length=3)
 
 
-ExtractionInputs = list[str]
+ExtractionInputs = Dataset
 ExtractionOutputs = list[NormalizeResult]
 
 
@@ -88,7 +89,7 @@ class ExtractionPipeline:
 
     async def _process_joke(self, joke: str, semaphore: asyncio.Semaphore) -> NormalizeResult:
         async with semaphore:
-            joke = joke.strip()
+            joke = str(joke).strip()
             extract_result = await self._complete_with_schema(
                 system_prompt=self.extract_system_template.render(),
                 user_prompt=self.extract_user_template.render(joke=joke),
@@ -107,6 +108,9 @@ class ExtractionPipeline:
         return normalize_result
 
     async def run(self, inputs: ExtractionInputs) -> ExtractionOutputs:
+        if "text" not in inputs.column_names:
+            raise ValueError("Dataset must contain a 'text' column.")
+
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        tasks = [self._process_joke(joke=item, semaphore=semaphore) for item in inputs]
+        tasks = [self._process_joke(joke=row["text"], semaphore=semaphore) for row in inputs]
         return await asyncio.gather(*tasks)

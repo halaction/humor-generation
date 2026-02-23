@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_API_KEY: str = "sk-xxx"
+    HUGGINGFACE_TOKEN: str = ""
 
 
 settings = Settings()
