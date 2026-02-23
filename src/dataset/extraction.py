@@ -1,12 +1,14 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 from datasets import Dataset
 import yaml
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
+from src.paths import DATA_DIR
 from src.paths import CONFIG_DIR
 from src.settings import settings
 from src.templates import environment
@@ -27,8 +29,15 @@ class NormalizeResult(BaseModel):
     keywords: list[str] = Field(min_length=1, max_length=3)
 
 
+class ExtractionRecord(BaseModel):
+    joke_id: str
+    keywords: list[str]
+
+
 ExtractionInputs = Dataset
-ExtractionOutputs = list[NormalizeResult]
+ExtractionOutputs = list[ExtractionRecord]
+
+EXTRACTION_RESULTS_PATH = DATA_DIR / "keywords" / "extraction_results.jsonl"
 
 
 class ExtractionPipeline:
@@ -87,7 +96,7 @@ class ExtractionPipeline:
         content = json.loads(message.content)
         return schema_model.model_validate(content)
 
-    async def _process_joke(self, joke: str, semaphore: asyncio.Semaphore) -> NormalizeResult:
+    async def _process_joke(self, joke_id: str, joke: str, semaphore: asyncio.Semaphore) -> ExtractionRecord:
         async with semaphore:
             joke = str(joke).strip()
             extract_result = await self._complete_with_schema(
@@ -105,12 +114,59 @@ class ExtractionPipeline:
                 schema_name="normalize_result",
             )
 
-        return normalize_result
+        return ExtractionRecord(joke_id=joke_id, keywords=normalize_result.keywords)
 
-    async def run(self, inputs: ExtractionInputs) -> ExtractionOutputs:
+    @staticmethod
+    def _load_existing_results(path: Path) -> dict[str, list[str]]:
+        if not path.exists():
+            return {}
+
+        records: dict[str, list[str]] = {}
+        with path.open(encoding="utf-8") as input_file:
+            for line in input_file:
+                line = line.strip()
+                if not line:
+                    continue
+                payload = json.loads(line)
+                joke_id = str(payload["joke_id"])
+                keywords = [str(item).strip() for item in payload["keywords"]]
+                records[joke_id] = keywords
+
+        return records
+
+    @staticmethod
+    def _sort_joke_id(value: str) -> tuple[int, Any]:
+        return (0, int(value)) if value.isdigit() else (1, value)
+
+    def _save_results(self, results: ExtractionOutputs, output_path: Path) -> Path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = self._load_existing_results(output_path)
+
+        for item in results:
+            existing[item.joke_id] = item.keywords
+
+        with output_path.open("w", encoding="utf-8") as output_file:
+            for joke_id in sorted(existing, key=self._sort_joke_id):
+                payload = {"joke_id": joke_id, "keywords": existing[joke_id]}
+                output_file.write(f"{json.dumps(payload, ensure_ascii=False)}\n")
+
+        return output_path
+
+    async def run(
+        self,
+        inputs: ExtractionInputs,
+        output_path: Path = EXTRACTION_RESULTS_PATH,
+    ) -> tuple[ExtractionOutputs, Path]:
         if "text" not in inputs.column_names:
             raise ValueError("Dataset must contain a 'text' column.")
 
+        if "id" not in inputs.column_names:
+            raise ValueError("Dataset must contain an 'id' column.")
+
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        tasks = [self._process_joke(joke=row["text"], semaphore=semaphore) for row in inputs]
-        return await asyncio.gather(*tasks)
+        tasks = [
+            self._process_joke(joke_id=str(row["id"]), joke=row["text"], semaphore=semaphore) for row in inputs
+        ]
+        results = await asyncio.gather(*tasks)
+        saved_path = self._save_results(results=results, output_path=output_path)
+        return results, saved_path
