@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = "sk-xxx"
 
     HF_TOKEN: str = "hf_xxx"
+    HF_DATASET_REPO_ID: str = "org/name"
 
 
 settings = Settings()

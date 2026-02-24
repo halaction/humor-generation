@@ -8,8 +8,8 @@ import yaml
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from src.paths import DATA_DIR
-from src.paths import CONFIG_DIR
+from src.paths import EXTRACTION_CONFIG_PATH
+from src.paths import EXTRACTION_RESULTS_PATH
 from src.settings import settings
 from src.templates import environment
 
@@ -37,13 +37,10 @@ class ExtractionRecord(BaseModel):
 ExtractionInputs = Dataset
 ExtractionOutputs = list[ExtractionRecord]
 
-EXTRACTION_RESULTS_PATH = DATA_DIR / "keywords" / "extraction_results.jsonl"
-
-
 class ExtractionPipeline:
     def __init__(self, config_path: Path | None = None) -> None:
         if config_path is None:
-            config_path = CONFIG_DIR / "extraction.yaml"
+            config_path = EXTRACTION_CONFIG_PATH
 
         payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         config = ExtractionConfig.model_validate(payload)

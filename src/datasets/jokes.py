@@ -3,20 +3,20 @@ import gzip
 from pathlib import Path
 from urllib.parse import urlparse
 
-from datasets import load_dataset
-from huggingface_hub import HfApi
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import requests
+from huggingface_hub import HfApi
 
+from datasets import load_dataset
 from src.logging import get_logger
-from src.paths import DATA_DIR
+from src.paths import DATA_DIR, JOKES_DATA_PATH
 from src.settings import settings
 
 logger = get_logger(__name__)
 
-HF_DATASET_REPO_ID = "halaction/humor-generation"
+
 JOKES_CONFIG_NAME = "jokes"
 
 
@@ -189,7 +189,7 @@ def build_jokes_dataset() -> Path:
     global_ids = pc.cast(pa.array(range(combined_table.num_rows), type=pa.int64()), pa.string())
     combined_table = combined_table.set_column(combined_table.schema.get_field_index("id"), "id", global_ids)
 
-    output_path = DATA_DIR / "jokes.parquet"
+    output_path = JOKES_DATA_PATH
     pq.write_table(
         combined_table,
         output_path,
@@ -203,7 +203,7 @@ def build_jokes_dataset() -> Path:
 
 def publish_jokes_dataset(
     parquet_path: Path | None = None,
-    repo_id: str = HF_DATASET_REPO_ID,
+    repo_id: str = settings.HF_DATASET_REPO_ID,
     config_name: str = JOKES_CONFIG_NAME,
     split: str = "train",
     private: bool = False,

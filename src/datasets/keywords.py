@@ -6,13 +6,12 @@ from huggingface_hub import HfApi
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.dataset.extraction import EXTRACTION_RESULTS_PATH
-from src.dataset.jokes import HF_DATASET_REPO_ID
 from src.logging import get_logger
-from src.paths import DATA_DIR
+from src.paths import EXTRACTION_RESULTS_PATH, KEYWORDS_DATA_PATH
 from src.settings import settings
 
 logger = get_logger(__name__)
+
 
 KEYWORDS_CONFIG_NAME = "keywords"
 
@@ -65,7 +64,7 @@ def build_keywords_dataset(extraction_results_path: Path = EXTRACTION_RESULTS_PA
         )
 
     records = _read_extraction_results(extraction_results_path)
-    output_path = DATA_DIR / "keywords.parquet"
+    output_path = KEYWORDS_DATA_PATH
     _write_parquet(records=records, destination=output_path)
     logger.info(
         "build.done",
@@ -78,7 +77,7 @@ def build_keywords_dataset(extraction_results_path: Path = EXTRACTION_RESULTS_PA
 
 def publish_keywords_dataset(
     parquet_path: Path | None = None,
-    repo_id: str = HF_DATASET_REPO_ID,
+    repo_id: str = settings.HF_DATASET_REPO_ID,
     config_name: str = KEYWORDS_CONFIG_NAME,
     split: str = "train",
     private: bool = False,
