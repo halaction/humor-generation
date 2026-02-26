@@ -59,8 +59,7 @@ def build_keywords_dataset() -> Path:
     keywords_results_path = DATA_DIR / config.keywords.results_filename
     if not keywords_results_path.exists():
         raise FileNotFoundError(
-            "Keywords pipeline results were not found: "
-            f"{keywords_results_path}. Run KeywordsPipeline.run first."
+            f"Keywords pipeline results were not found: {keywords_results_path}. Run KeywordsPipeline.run first."
         )
 
     records = _read_extraction_results(keywords_results_path)

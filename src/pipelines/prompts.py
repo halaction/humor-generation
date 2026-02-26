@@ -157,9 +157,7 @@ class PromptsPipeline:
 
         output_path = DATA_DIR / self.results_filename
         semaphore = asyncio.Semaphore(self.max_parallel_requests)
-        tasks = [
-            self._process_joke(joke_id=str(row["id"]), joke=row["text"], semaphore=semaphore) for row in inputs
-        ]
+        tasks = [self._process_joke(joke_id=str(row["id"]), joke=row["text"], semaphore=semaphore) for row in inputs]
         results = await asyncio.gather(*tasks)
         saved_path = self._save_results(results=results, output_path=output_path)
         return results, saved_path

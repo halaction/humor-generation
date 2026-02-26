@@ -73,8 +73,7 @@ class KeywordsPipeline:
         self.embedding_config = config.embeddings
         if self.config.ngram_min > self.config.ngram_max:
             msg = (
-                "Invalid n-gram range: "
-                f"ngram_min={self.config.ngram_min} must be <= ngram_max={self.config.ngram_max}."
+                f"Invalid n-gram range: ngram_min={self.config.ngram_min} must be <= ngram_max={self.config.ngram_max}."
             )
             raise ValueError(msg)
         self.client = AsyncOpenAI(
@@ -98,10 +97,7 @@ class KeywordsPipeline:
             else:
                 vectors = [item.embedding for item in response.data]
                 if len(vectors) != len(texts):
-                    msg = (
-                        "Embedding API returned mismatched outputs: "
-                        f"expected={len(texts)} got={len(vectors)}"
-                    )
+                    msg = f"Embedding API returned mismatched outputs: expected={len(texts)} got={len(vectors)}"
                     raise ValueError(msg)
                 return vectors
 
