@@ -1,9 +1,7 @@
-from pathlib import Path
-
-from pydantic import BaseModel, Field
 import yaml
+from pydantic import BaseModel, Field
 
-from src.paths import BASE_DIR
+from src.paths import CONFIGS_DIR
 from src.settings import settings
 
 
@@ -44,5 +42,5 @@ class Config(BaseModel):
     extraction: ExtractionConfig
 
 
-config_path = BASE_DIR / settings.CONFIG_FILENAME
+config_path = CONFIGS_DIR / settings.CONFIG_FILENAME
 config = Config.model_validate(yaml.safe_load(config_path.read_text(encoding="utf-8")))
