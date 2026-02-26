@@ -33,17 +33,6 @@ class EmbeddingOutputs(BaseModel):
     data_path: Path
 
 
-def _build_table(outputs: list[EmbeddingsItem], dimensions: int) -> pa.Table:
-    schema = pa.schema(
-        [
-            pa.field("id", pa.string()),
-            pa.field("embedding", pa.list_(pa.float32(), dimensions)),
-        ]
-    )
-    payload = [item.model_dump(mode="python") for item in outputs]
-    return pa.Table.from_pylist(payload, schema=schema)
-
-
 class EmbeddingPipeline:
     def __init__(self) -> None:
         self.config = config.embeddings
@@ -84,6 +73,17 @@ class EmbeddingPipeline:
 
         raise RuntimeError("Unexpected embedding retry flow")
 
+    @staticmethod
+    def _build_table(outputs: list[EmbeddingsItem], dimensions: int) -> pa.Table:
+        schema = pa.schema(
+            [
+                pa.field("id", pa.string()),
+                pa.field("embedding", pa.list_(pa.float32(), dimensions)),
+            ]
+        )
+        payload = [item.model_dump(mode="python") for item in outputs]
+        return pa.Table.from_pylist(payload, schema=schema)
+
     def _flush_writer(
         self,
         write_buffer: list[EmbeddingsItem],
@@ -102,7 +102,7 @@ class EmbeddingPipeline:
                     msg,
                 )
 
-        table = _build_table(outputs=write_buffer, dimensions=self.config.dimensions)
+        table = self._build_table(outputs=write_buffer, dimensions=self.config.dimensions)
         writer.write_table(table)
         write_buffer.clear()
 
