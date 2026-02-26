@@ -8,7 +8,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from datasets import Dataset
-from src.config import config
+from src.config import EmbeddingsConfig, config
 from src.logging import get_logger
 from src.paths import DATA_DIR
 from src.settings import settings
@@ -34,9 +34,14 @@ class EmbeddingsOutputs(BaseModel):
 
 
 class EmbeddingsPipeline:
-    def __init__(self) -> None:
-        self.config = config.embeddings
-        self.client = AsyncOpenAI(
+    def __init__(
+        self,
+        *,
+        pipeline_config: EmbeddingsConfig | None = None,
+        client: Any | None = None,
+    ) -> None:
+        self.config = pipeline_config or config.embeddings
+        self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
             timeout=self.config.timeout,

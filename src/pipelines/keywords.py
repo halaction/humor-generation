@@ -10,7 +10,7 @@ from datasets import Dataset
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from src.config import config
+from src.config import EmbeddingsConfig, KeywordsConfig, config
 from src.paths import DATA_DIR
 from src.settings import settings
 
@@ -68,15 +68,21 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
 
 
 class KeywordsPipeline:
-    def __init__(self) -> None:
-        self.config = config.keywords
-        self.embedding_config = config.embeddings
+    def __init__(
+        self,
+        *,
+        keywords_config: KeywordsConfig | None = None,
+        embeddings_config: EmbeddingsConfig | None = None,
+        client: Any | None = None,
+    ) -> None:
+        self.config = keywords_config or config.keywords
+        self.embedding_config = embeddings_config or config.embeddings
         if self.config.ngram_min > self.config.ngram_max:
             msg = (
                 f"Invalid n-gram range: ngram_min={self.config.ngram_min} must be <= ngram_max={self.config.ngram_max}."
             )
             raise ValueError(msg)
-        self.client = AsyncOpenAI(
+        self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
             timeout=self.config.timeout,

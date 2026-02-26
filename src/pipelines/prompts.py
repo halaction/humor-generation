@@ -39,6 +39,7 @@ class PromptsPipeline:
         max_completion_tokens: int = 512,
         max_parallel_requests: int = 5,
         timeout: int = 60,
+        client: Any | None = None,
     ) -> None:
         self.model = model
         self.results_filename = results_filename
@@ -49,7 +50,7 @@ class PromptsPipeline:
         self.extract_user_template = environment.get_template("extract_user.j2")
         self.normalize_system_template = environment.get_template("normalize_system.j2")
         self.normalize_user_template = environment.get_template("normalize_user.j2")
-        self.client = AsyncOpenAI(
+        self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
             timeout=timeout,
