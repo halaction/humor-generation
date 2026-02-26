@@ -14,10 +14,14 @@ class KeywordsConfig(BaseModel):
     hf_config_name: str = "keywords"
     data_filename: str = "keywords.parquet"
     results_filename: str = "keywords.jsonl"
-    model: str
-    temperature: float
-    max_completion_tokens: int = Field(gt=0)
+    ngram_min: int = Field(default=1, ge=1)
+    ngram_max: int = Field(default=3, ge=1)
+    top_n: int = Field(default=3, ge=1)
+    max_candidates: int = Field(default=256, ge=1)
+    batch_size: int = Field(default=128, gt=0)
     max_parallel_requests: int = Field(gt=0)
+    timeout: int = Field(default=60, gt=0)
+    max_retries: int = Field(default=5, gt=0)
 
 
 class EmbeddingsConfig(BaseModel):
