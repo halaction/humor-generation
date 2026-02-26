@@ -4,22 +4,13 @@ from pathlib import Path
 from typing import Any
 
 from datasets import Dataset
-import yaml
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from src.paths import EXTRACTION_CONFIG_PATH
-from src.paths import EXTRACTION_RESULTS_PATH
+from src.config import config
+from src.paths import DATA_DIR
 from src.settings import settings
 from src.templates import environment
-
-
-class ExtractionConfig(BaseModel):
-    model: str
-    temperature: float
-    max_completion_tokens: int
-    max_parallel_requests: int = Field(gt=0)
-
 
 class ExtractResult(BaseModel):
     substrings: list[str] = Field(min_length=1, max_length=3)
@@ -38,14 +29,8 @@ ExtractionInputs = Dataset
 ExtractionOutputs = list[ExtractionRecord]
 
 class ExtractionPipeline:
-    def __init__(self, config_path: Path | None = None) -> None:
-        if config_path is None:
-            config_path = EXTRACTION_CONFIG_PATH
-
-        payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        config = ExtractionConfig.model_validate(payload)
-
-        self.config = config
+    def __init__(self) -> None:
+        self.config = config.extraction
         self.extract_system_template = environment.get_template("extract_system.j2")
         self.extract_user_template = environment.get_template("extract_user.j2")
 
@@ -152,7 +137,6 @@ class ExtractionPipeline:
     async def run(
         self,
         inputs: ExtractionInputs,
-        output_path: Path = EXTRACTION_RESULTS_PATH,
     ) -> tuple[ExtractionOutputs, Path]:
         if "text" not in inputs.column_names:
             raise ValueError("Dataset must contain a 'text' column.")
@@ -160,6 +144,7 @@ class ExtractionPipeline:
         if "id" not in inputs.column_names:
             raise ValueError("Dataset must contain an 'id' column.")
 
+        output_path = DATA_DIR / self.config.results_filename
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
         tasks = [
             self._process_joke(joke_id=str(row["id"]), joke=row["text"], semaphore=semaphore) for row in inputs

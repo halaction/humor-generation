@@ -4,26 +4,16 @@ from typing import Any, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import yaml
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from datasets import Dataset
+from src.config import config
 from src.logging import get_logger
-from src.paths import EMBEDDING_CONFIG_PATH, EMBEDDINGS_DATA_PATH
+from src.paths import DATA_DIR
 from src.settings import settings
 
 logger = get_logger(__name__)
-
-
-class EmbeddingConfig(BaseModel):
-    model: str
-    dimensions: int
-    batch_size: int
-    shard_size: int
-    max_parallel_requests: int
-    timeout: int
-    max_retries: int
 
 
 class JokesItem(BaseModel):
@@ -55,9 +45,8 @@ def _build_table(outputs: list[EmbeddingsItem], dimensions: int) -> pa.Table:
 
 
 class EmbeddingPipeline:
-    def __init__(self, config_path: Path = EMBEDDING_CONFIG_PATH) -> None:
-        payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        self.config = EmbeddingConfig.model_validate(payload)
+    def __init__(self) -> None:
+        self.config = config.embeddings
         self.client = AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
@@ -137,12 +126,13 @@ class EmbeddingPipeline:
     async def run(
         self,
         inputs: EmbeddingInputs,
-        output_path: Path = EMBEDDINGS_DATA_PATH,
     ) -> EmbeddingOutputs:
         if "id" not in inputs.column_names:
             raise ValueError("Dataset must contain an 'id' column.")
         if "text" not in inputs.column_names:
             raise ValueError("Dataset must contain a 'text' column.")
+
+        output_path = DATA_DIR / self.config.data_filename
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         if output_path.exists():

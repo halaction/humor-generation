@@ -10,14 +10,12 @@ import requests
 from huggingface_hub import HfApi
 
 from datasets import load_dataset
+from src.config import config
 from src.logging import get_logger
-from src.paths import DATA_DIR, JOKES_DATA_PATH
+from src.paths import DATA_DIR
 from src.settings import settings
 
 logger = get_logger(__name__)
-
-
-JOKES_CONFIG_NAME = "jokes"
 
 
 def _download_file(url: str, path: Path) -> Path:
@@ -189,7 +187,7 @@ def build_jokes_dataset() -> Path:
     global_ids = pc.cast(pa.array(range(combined_table.num_rows), type=pa.int64()), pa.string())
     combined_table = combined_table.set_column(combined_table.schema.get_field_index("id"), "id", global_ids)
 
-    output_path = JOKES_DATA_PATH
+    output_path = DATA_DIR / config.jokes.data_filename
     pq.write_table(
         combined_table,
         output_path,
@@ -202,13 +200,14 @@ def build_jokes_dataset() -> Path:
 
 
 def publish_jokes_dataset(
-    parquet_path: Path | None = None,
     repo_id: str = settings.HF_DATASET_REPO_ID,
-    config_name: str = JOKES_CONFIG_NAME,
+    config_name: str = config.jokes.hf_config_name,
     split: str = "train",
     private: bool = False,
 ) -> tuple[str, str]:
-    target_path = parquet_path or build_jokes_dataset()
+    target_path = DATA_DIR / config.jokes.data_filename
+    if not target_path.exists():
+        target_path = build_jokes_dataset()
     dataset = load_dataset("parquet", data_files=str(target_path), split=split)
     api = HfApi(token=settings.HF_TOKEN)
     api.create_repo(

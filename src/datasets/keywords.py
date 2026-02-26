@@ -6,14 +6,12 @@ from huggingface_hub import HfApi
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from src.config import config
 from src.logging import get_logger
-from src.paths import EXTRACTION_RESULTS_PATH, KEYWORDS_DATA_PATH
+from src.paths import DATA_DIR
 from src.settings import settings
 
 logger = get_logger(__name__)
-
-
-KEYWORDS_CONFIG_NAME = "keywords"
 
 
 def _read_extraction_results(path: Path) -> list[dict[str, object]]:
@@ -57,14 +55,16 @@ def _write_parquet(records: list[dict[str, object]], destination: Path) -> Path:
     return destination
 
 
-def build_keywords_dataset(extraction_results_path: Path = EXTRACTION_RESULTS_PATH) -> Path:
+def build_keywords_dataset() -> Path:
+    extraction_results_path = DATA_DIR / config.extraction.results_filename
     if not extraction_results_path.exists():
         raise FileNotFoundError(
-            f"Extraction results were not found: {extraction_results_path}. Run ExtractionPipeline.run first."
+            "Extraction results were not found: "
+            f"{extraction_results_path}. Run ExtractionPipeline.run first."
         )
 
     records = _read_extraction_results(extraction_results_path)
-    output_path = KEYWORDS_DATA_PATH
+    output_path = DATA_DIR / config.keywords.data_filename
     _write_parquet(records=records, destination=output_path)
     logger.info(
         "build.done",
@@ -76,13 +76,14 @@ def build_keywords_dataset(extraction_results_path: Path = EXTRACTION_RESULTS_PA
 
 
 def publish_keywords_dataset(
-    parquet_path: Path | None = None,
     repo_id: str = settings.HF_DATASET_REPO_ID,
-    config_name: str = KEYWORDS_CONFIG_NAME,
+    config_name: str = config.keywords.hf_config_name,
     split: str = "train",
     private: bool = False,
 ) -> tuple[str, str]:
-    target_path = parquet_path or build_keywords_dataset()
+    target_path = DATA_DIR / config.keywords.data_filename
+    if not target_path.exists():
+        target_path = build_keywords_dataset()
     dataset = load_dataset("parquet", data_files=str(target_path), split=split)
     api = HfApi(token=settings.HF_TOKEN)
     api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)

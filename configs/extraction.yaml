@@ -1,5 +1,0 @@
-# model: qwen/qwen3-next-80b-a3b-thinking
-model: qwen/qwen3-next-80b-a3b-instruct
-temperature: 0
-max_completion_tokens: 512
-max_parallel_requests: 5

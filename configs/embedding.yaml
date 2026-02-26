@@ -1,7 +1,0 @@
-model: qwen/qwen3-embedding-8b
-dimensions: 1024
-batch_size: 16
-max_parallel_requests: 1
-shard_size: 10000
-timeout: 60
-max_retries: 5

@@ -1,0 +1,25 @@
+jokes:
+  hf_config_name: "jokes"
+  data_filename: "jokes.parquet"
+
+keywords:
+  hf_config_name: "keywords"
+  data_filename: "keywords.parquet"
+
+embeddings:
+  hf_config_name: "embeddings"
+  data_filename: "embeddings.parquet"
+  model: "qwen/qwen3-embedding-8b"
+  dimensions: 1024
+  batch_size: 16
+  max_parallel_requests: 1
+  shard_size: 10000
+  timeout: 60
+  max_retries: 5
+
+extraction:
+  results_filename: "extraction.jsonl"
+  model: "qwen/qwen3-next-80b-a3b-instruct"
+  temperature: 0
+  max_completion_tokens: 512
+  max_parallel_requests: 5

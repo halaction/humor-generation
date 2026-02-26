@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     HF_TOKEN: str = "hf_xxx"
     HF_DATASET_REPO_ID: str = "org/name"
+    CONFIG_FILENAME: str = "default.yaml"
 
 
 settings = Settings()
