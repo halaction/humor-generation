@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from typing import Any, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -107,9 +108,12 @@ class EmbeddingPipeline:
 
         for item in write_buffer:
             if len(item.embedding) != self.config.embedding_dim:
-                raise ValueError(
+                msg = (
                     f"Inconsistent embedding size for id={item.id}: expected {self.config.embedding_dim}, "
                     f"got {len(item.embedding)}"
+                )
+                raise ValueError(
+                    msg,
                 )
 
         table = _build_table(outputs=write_buffer, embedding_dim=self.config.embedding_dim)
@@ -171,6 +175,7 @@ class EmbeddingPipeline:
         )
 
         for item in inputs:
+            item = cast("dict[str, Any]", item)
             request_batch.append(
                 JokesItem(
                     id=item["id"],
