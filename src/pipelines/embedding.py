@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 class EmbeddingConfig(BaseModel):
     model: str
-    embedding_dim: int
+    dimensions: int
     batch_size: int
     shard_size: int
     max_parallel_requests: int
@@ -43,15 +43,11 @@ class EmbeddingOutputs(BaseModel):
     data_path: Path
 
 
-def _build_table(outputs: list[EmbeddingsItem], embedding_dim: int) -> pa.Table:
+def _build_table(outputs: list[EmbeddingsItem], dimensions: int) -> pa.Table:
     schema = pa.schema(
         [
             pa.field("id", pa.string()),
-            pa.field("text", pa.string()),
-            pa.field("source_name", pa.string()),
-            pa.field("source_filename", pa.string()),
-            pa.field("source_id", pa.string()),
-            pa.field("embedding", pa.list_(pa.float32(), embedding_dim)),
+            pa.field("embedding", pa.list_(pa.float32(), dimensions)),
         ]
     )
     payload = [item.model_dump(mode="python") for item in outputs]
@@ -79,6 +75,7 @@ class EmbeddingPipeline:
                     response = await self.client.embeddings.create(
                         model=self.config.model,
                         input=[item.text for item in batch],
+                        dimensions=self.config.dimensions,
                     )
 
                     outputs: list[EmbeddingsItem] = []
@@ -107,16 +104,16 @@ class EmbeddingPipeline:
             return
 
         for item in write_buffer:
-            if len(item.embedding) != self.config.embedding_dim:
+            if len(item.embedding) != self.config.dimensions:
                 msg = (
-                    f"Inconsistent embedding size for id={item.id}: expected {self.config.embedding_dim}, "
+                    f"Inconsistent embedding size for id={item.id}: expected {self.config.dimensions}, "
                     f"got {len(item.embedding)}"
                 )
                 raise ValueError(
                     msg,
                 )
 
-        table = _build_table(outputs=write_buffer, embedding_dim=self.config.embedding_dim)
+        table = _build_table(outputs=write_buffer, dimensions=self.config.dimensions)
         writer.write_table(table)
         write_buffer.clear()
 
@@ -159,11 +156,7 @@ class EmbeddingPipeline:
         schema = pa.schema(
             [
                 pa.field("id", pa.string()),
-                pa.field("text", pa.string()),
-                pa.field("source_name", pa.string()),
-                pa.field("source_filename", pa.string()),
-                pa.field("source_id", pa.string()),
-                pa.field("embedding", pa.list_(pa.float32(), self.config.embedding_dim)),
+                pa.field("embedding", pa.list_(pa.float32(), self.config.dimensions)),
             ]
         )
         writer = pq.ParquetWriter(
