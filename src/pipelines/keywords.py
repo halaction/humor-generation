@@ -20,17 +20,17 @@ class NormalizeResult(BaseModel):
     keywords: list[str] = Field(min_length=1, max_length=3)
 
 
-class ExtractionRecord(BaseModel):
+class KeywordsRecord(BaseModel):
     joke_id: str
     keywords: list[str]
 
 
 ExtractionInputs = Dataset
-ExtractionOutputs = list[ExtractionRecord]
+KeywordsOutputs = list[KeywordsRecord]
 
-class ExtractionPipeline:
+class KeywordsPipeline:
     def __init__(self) -> None:
-        self.config = config.extraction
+        self.config = config.keywords
         self.extract_system_template = environment.get_template("extract_system.j2")
         self.extract_user_template = environment.get_template("extract_user.j2")
 
@@ -78,7 +78,7 @@ class ExtractionPipeline:
         content = json.loads(message.content)
         return schema_model.model_validate(content)
 
-    async def _process_joke(self, joke_id: str, joke: str, semaphore: asyncio.Semaphore) -> ExtractionRecord:
+    async def _process_joke(self, joke_id: str, joke: str, semaphore: asyncio.Semaphore) -> KeywordsRecord:
         async with semaphore:
             joke = str(joke).strip()
             extract_result = await self._complete_with_schema(
@@ -96,7 +96,7 @@ class ExtractionPipeline:
                 schema_name="normalize_result",
             )
 
-        return ExtractionRecord(joke_id=joke_id, keywords=normalize_result.keywords)
+        return KeywordsRecord(joke_id=joke_id, keywords=normalize_result.keywords)
 
     @staticmethod
     def _load_existing_results(path: Path) -> dict[str, list[str]]:
@@ -120,7 +120,7 @@ class ExtractionPipeline:
     def _sort_joke_id(value: str) -> tuple[int, Any]:
         return (0, int(value)) if value.isdigit() else (1, value)
 
-    def _save_results(self, results: ExtractionOutputs, output_path: Path) -> Path:
+    def _save_results(self, results: KeywordsOutputs, output_path: Path) -> Path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         existing = self._load_existing_results(output_path)
 
@@ -137,7 +137,7 @@ class ExtractionPipeline:
     async def run(
         self,
         inputs: ExtractionInputs,
-    ) -> tuple[ExtractionOutputs, Path]:
+    ) -> tuple[KeywordsOutputs, Path]:
         if "text" not in inputs.column_names:
             raise ValueError("Dataset must contain a 'text' column.")
 

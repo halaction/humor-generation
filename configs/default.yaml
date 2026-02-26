@@ -5,6 +5,11 @@ jokes:
 keywords:
   hf_config_name: "keywords"
   data_filename: "keywords.parquet"
+  results_filename: "keywords.jsonl"
+  model: "qwen/qwen3-next-80b-a3b-instruct"
+  temperature: 0
+  max_completion_tokens: 512
+  max_parallel_requests: 5
 
 embeddings:
   hf_config_name: "embeddings"
@@ -16,10 +21,3 @@ embeddings:
   shard_size: 10000
   timeout: 60
   max_retries: 5
-
-extraction:
-  results_filename: "extraction.jsonl"
-  model: "qwen/qwen3-next-80b-a3b-instruct"
-  temperature: 0
-  max_completion_tokens: 512
-  max_parallel_requests: 5

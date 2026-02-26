@@ -56,20 +56,20 @@ def _write_parquet(records: list[dict[str, object]], destination: Path) -> Path:
 
 
 def build_keywords_dataset() -> Path:
-    extraction_results_path = DATA_DIR / config.extraction.results_filename
-    if not extraction_results_path.exists():
+    keywords_results_path = DATA_DIR / config.keywords.results_filename
+    if not keywords_results_path.exists():
         raise FileNotFoundError(
-            "Extraction results were not found: "
-            f"{extraction_results_path}. Run ExtractionPipeline.run first."
+            "Keywords pipeline results were not found: "
+            f"{keywords_results_path}. Run KeywordsPipeline.run first."
         )
 
-    records = _read_extraction_results(extraction_results_path)
+    records = _read_extraction_results(keywords_results_path)
     output_path = DATA_DIR / config.keywords.data_filename
     _write_parquet(records=records, destination=output_path)
     logger.info(
         "build.done",
         rows=len(records),
-        extraction_results_path=str(extraction_results_path),
+        keywords_results_path=str(keywords_results_path),
         output_path=str(output_path),
     )
     return output_path

@@ -9,7 +9,7 @@ from src.config import config
 from src.datasets.jokes import build_jokes_dataset
 from src.logging import get_logger
 from src.paths import DATA_DIR
-from src.pipelines.embedding import EmbeddingPipeline
+from src.pipelines.embeddings import EmbeddingsPipeline
 from src.settings import settings
 
 logger = get_logger(__name__)
@@ -27,7 +27,7 @@ def build_embeddings_dataset() -> EmbeddingsDatasetOutputs:
         target_jokes_path = build_jokes_dataset()
 
     inputs = load_dataset("parquet", data_files=str(target_jokes_path), split="train")
-    pipeline = EmbeddingPipeline()
+    pipeline = EmbeddingsPipeline()
     outputs = asyncio.run(pipeline.run(inputs))
     logger.info(
         "build.done",

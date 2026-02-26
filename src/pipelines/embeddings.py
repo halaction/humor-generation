@@ -26,14 +26,14 @@ class EmbeddingsItem(BaseModel):
     embedding: list[float]
 
 
-EmbeddingInputs = Dataset
+EmbeddingsInputs = Dataset
 
 
-class EmbeddingOutputs(BaseModel):
+class EmbeddingsOutputs(BaseModel):
     data_path: Path
 
 
-class EmbeddingPipeline:
+class EmbeddingsPipeline:
     def __init__(self) -> None:
         self.config = config.embeddings
         self.client = AsyncOpenAI(
@@ -125,8 +125,8 @@ class EmbeddingPipeline:
 
     async def run(
         self,
-        inputs: EmbeddingInputs,
-    ) -> EmbeddingOutputs:
+        inputs: EmbeddingsInputs,
+    ) -> EmbeddingsOutputs:
         if "id" not in inputs.column_names:
             raise ValueError("Dataset must contain an 'id' column.")
         if "text" not in inputs.column_names:
@@ -200,4 +200,4 @@ class EmbeddingPipeline:
             model=self.config.model,
             output_path=str(output_path),
         )
-        return EmbeddingOutputs(data_path=output_path)
+        return EmbeddingsOutputs(data_path=output_path)

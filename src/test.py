@@ -4,7 +4,7 @@ from datasets import load_dataset
 
 from src.config import config
 from src.datasets.embeddings import publish_embeddings_dataset
-from src.pipelines.embedding import EmbeddingPipeline
+from src.pipelines.embeddings import EmbeddingsPipeline
 from src.settings import settings
 
 if __name__ == "__main__":
@@ -15,7 +15,7 @@ if __name__ == "__main__":
         token=settings.HF_TOKEN,
     )
 
-    embeddings_pipeline = EmbeddingPipeline()
+    embeddings_pipeline = EmbeddingsPipeline()
     embeddings_outputs = asyncio.run(embeddings_pipeline.run(dataset))
     publish_outputs = publish_embeddings_dataset()
 

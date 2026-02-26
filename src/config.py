@@ -13,6 +13,11 @@ class JokesConfig(BaseModel):
 class KeywordsConfig(BaseModel):
     hf_config_name: str = "keywords"
     data_filename: str = "keywords.parquet"
+    results_filename: str = "keywords.jsonl"
+    model: str
+    temperature: float
+    max_completion_tokens: int = Field(gt=0)
+    max_parallel_requests: int = Field(gt=0)
 
 
 class EmbeddingsConfig(BaseModel):
@@ -27,19 +32,10 @@ class EmbeddingsConfig(BaseModel):
     max_retries: int = Field(gt=0)
 
 
-class ExtractionConfig(BaseModel):
-    results_filename: str = "extraction.jsonl"
-    model: str
-    temperature: float
-    max_completion_tokens: int = Field(gt=0)
-    max_parallel_requests: int = Field(gt=0)
-
-
 class Config(BaseModel):
     jokes: JokesConfig
     keywords: KeywordsConfig
     embeddings: EmbeddingsConfig
-    extraction: ExtractionConfig
 
 
 config_path = CONFIGS_DIR / settings.CONFIG_FILENAME
