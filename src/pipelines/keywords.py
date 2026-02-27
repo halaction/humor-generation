@@ -23,12 +23,9 @@ class KeywordsItem(BaseModel):
     scores: list[float]
 
 
-class KeywordsInputs(BaseModel):
-    jokes: Dataset
-    embeddings: list[str]
-
-
-KeywordsOutputs = list[KeywordsItem]
+class KeywordsOutputs(BaseModel):
+    results: list[KeywordsItem]
+    data_path: Path
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -225,7 +222,7 @@ class KeywordsPipeline:
         self,
         completed_tasks: Iterable[asyncio.Task[KeywordsItem]],
         seen_ids: set[str],
-        outputs: KeywordsOutputs,
+        outputs: list[KeywordsItem],
     ) -> None:
         for task in completed_tasks:
             result = task.result()
@@ -236,17 +233,27 @@ class KeywordsPipeline:
 
     async def run(
         self,
-        inputs: KeywordsInputs,
-    ) -> tuple[KeywordsOutputs, Path]:
-        if "text" not in inputs.column_names:
-            msg = "Dataset must contain a 'text' column."
+        jokes: Dataset,
+        embeddings: Dataset,
+    ) -> KeywordsOutputs:
+        if "id" not in jokes.column_names:
+            msg = "Jokes dataset must contain an 'id' column."
             raise ValueError(msg)
-        if "id" not in inputs.column_names:
-            msg = "Dataset must contain an 'id' column."
+        if "text" not in jokes.column_names:
+            msg = "Jokes dataset must contain a 'text' column."
             raise ValueError(msg)
-        if "embedding" not in inputs.column_names:
-            msg = "Dataset must contain an 'embedding' column."
+        if "id" not in embeddings.column_names:
+            msg = "Embeddings dataset must contain an 'id' column."
             raise ValueError(msg)
+        if "embedding" not in embeddings.column_names:
+            msg = "Embeddings dataset must contain an 'embedding' column."
+            raise ValueError(msg)
+
+        jokes_table = cast(pa.Table, cast("Any", jokes).data.table).select(["id", "text"])
+        embeddings_table = cast(pa.Table, cast("Any", embeddings).data.table).select(["id", "embedding"])
+        joined_table = jokes_table.join(embeddings_table, keys="id", join_type="inner")
+
+        dataset = Dataset.from_arrow(joined_table)
 
         output_path = DATA_DIR / self.config.data_filename
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -254,10 +261,10 @@ class KeywordsPipeline:
         existing_outputs = self._load_existing_outputs(output_path)
         seen_ids = set(existing_outputs)
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        outputs: KeywordsOutputs = []
+        outputs: list[KeywordsItem] = []
         pending_tasks: set[asyncio.Task[KeywordsItem]] = set()
 
-        for row in inputs:
+        for row in dataset:
             payload = cast("dict[str, Any]", row)
             joke_id = str(payload["id"])
             if joke_id in seen_ids:
@@ -295,4 +302,4 @@ class KeywordsPipeline:
         merged_outputs.extend(outputs)
         merged_outputs.sort(key=lambda item: self._sort_joke_id(item.joke_id))
         self._write_parquet(outputs=merged_outputs, output_path=output_path)
-        return outputs, output_path
+        return KeywordsOutputs(results=outputs, data_path=output_path)
