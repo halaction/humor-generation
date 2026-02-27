@@ -5,13 +5,14 @@ from itertools import batched
 from pathlib import Path
 from typing import Any, cast
 
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
-from datasets import Dataset
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 from sklearn.feature_extraction.text import CountVectorizer
 
+from datasets import Dataset
 from src.config import EmbeddingsConfig, KeywordsConfig, config
 from src.paths import DATA_DIR
 from src.settings import settings
@@ -177,21 +178,14 @@ class KeywordsPipeline:
             return {}
 
         table = pq.read_table(path)
+        required_columns = {"joke_id", "keywords", "scores"}
+        if not required_columns.issubset(set(table.schema.names)):
+            return {}
+
         outputs: dict[str, KeywordsItem] = {}
-        for joke_id, keywords, scores in zip(
-            table.column("joke_id").to_pylist(),
-            table.column("keywords").to_pylist(),
-            table.column("scores").to_pylist(),
-            strict=True,
-        ):
-            normalized_keywords = [str(item).strip() for item in (keywords or []) if str(item).strip()]
-            normalized_scores = [float(item) for item in (scores or [])]
-            count = min(len(normalized_keywords), len(normalized_scores))
-            outputs[str(joke_id)] = KeywordsItem(
-                joke_id=str(joke_id),
-                keywords=normalized_keywords[:count],
-                scores=normalized_scores[:count],
-            )
+        for row in table.select(["joke_id", "keywords", "scores"]).to_pylist():
+            item = KeywordsItem.model_validate(row)
+            outputs[item.joke_id] = item
         return outputs
 
     @staticmethod
@@ -249,11 +243,9 @@ class KeywordsPipeline:
             msg = "Embeddings dataset must contain an 'embedding' column."
             raise ValueError(msg)
 
-        jokes_table = cast(pa.Table, cast("Any", jokes).data.table).select(["id", "text"])
-        embeddings_table = cast(pa.Table, cast("Any", embeddings).data.table).select(["id", "embedding"])
-        joined_table = jokes_table.join(embeddings_table, keys="id", join_type="inner")
-
-        dataset = Dataset.from_arrow(joined_table)
+        jokes_frame = pl.from_arrow(cast(pa.Table, cast("Any", jokes).data.table).select(["id", "text"]))
+        embeddings_frame = pl.from_arrow(cast(pa.Table, cast("Any", embeddings).data.table).select(["id", "embedding"]))
+        joined_frame = jokes_frame.join(embeddings_frame, on="id", how="inner").select(["id", "text", "embedding"])
 
         output_path = DATA_DIR / self.config.data_filename
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -264,12 +256,9 @@ class KeywordsPipeline:
         outputs: list[KeywordsItem] = []
         pending_tasks: set[asyncio.Task[KeywordsItem]] = set()
 
-        for row in dataset:
-            payload = cast("dict[str, Any]", row)
-            joke_id = str(payload["id"])
+        for joke_id, joke_text, joke_embedding in joined_frame.iter_rows():
             if joke_id in seen_ids:
                 continue
-            joke_embedding = [float(value) for value in payload["embedding"]]
             if len(joke_embedding) != self.embedding_config.dimensions:
                 msg = (
                     f"Inconsistent embedding size for id={joke_id}: expected "
@@ -277,7 +266,6 @@ class KeywordsPipeline:
                 )
                 raise ValueError(msg)
 
-            joke_text = str(payload["text"])
             task = asyncio.create_task(
                 self._process_joke(
                     joke_id=joke_id,
