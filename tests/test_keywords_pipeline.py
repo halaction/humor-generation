@@ -1,8 +1,7 @@
 import asyncio
-import json
 import re
-from pathlib import Path
 
+import pyarrow.parquet as pq
 from datasets import Dataset
 from src.config import EmbeddingsConfig, KeywordsConfig
 from src.pipelines.keywords import KeywordsPipeline
@@ -56,21 +55,9 @@ class _MockAsyncClient:
     def __init__(self) -> None:
         self.embeddings = _MockEmbeddingsAPI()
 
-
-def _read_jsonl(path: Path) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    with path.open(encoding="utf-8") as input_file:
-        for line in input_file:
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line))
-    return rows
-
-
 def test_keywords_pipeline() -> None:
-    results_filename = "keywords-test.jsonl"
     keywords_config = KeywordsConfig(
-        results_filename=results_filename,
+        data_filename="keywords-test.parquet",
         ngram_min=1,
         ngram_max=3,
         top_n=3,
@@ -115,16 +102,21 @@ def test_keywords_pipeline() -> None:
     assert len(first_results) == 4
     assert len(second_results) == 0
 
-    rows = _read_jsonl(output_path)
-    assert len(rows) == 4
-    assert {row["joke_id"] for row in rows} == {"0", "1", "2", "3"}
-    for row in rows:
-        keywords = row["keywords"]
+    table = pq.read_table(output_path)
+    assert table.num_rows == 4
+    assert set(table.column("joke_id").to_pylist()) == {"0", "1", "2", "3"}
+    for keywords, scores in zip(
+        table.column("keywords").to_pylist(),
+        table.column("scores").to_pylist(),
+        strict=True,
+    ):
         assert isinstance(keywords, list)
         assert len(keywords) == 3
         for keyword in keywords:
             assert isinstance(keyword, str)
             assert keyword
+        assert isinstance(scores, list)
+        assert len(scores) == 3
 
     assert mock_client.embeddings.max_active_calls >= 2
     assert max(mock_client.embeddings.batch_sizes) <= 2

@@ -1,3 +1,5 @@
+from typing import Literal
+
 import yaml
 from pydantic import BaseModel, Field
 
@@ -13,10 +15,12 @@ class JokesConfig(BaseModel):
 class KeywordsConfig(BaseModel):
     hf_config_name: str = "keywords"
     data_filename: str = "keywords.parquet"
-    results_filename: str = "keywords.jsonl"
     ngram_min: int = Field(default=1, ge=1)
     ngram_max: int = Field(default=3, ge=1)
     top_n: int = Field(default=3, ge=1)
+    mmr_diversity: float = Field(default=0.7, ge=0.0, le=1.0)
+    length_penalty_alpha: float = Field(default=0.05, ge=0.0)
+    stopwords: Literal["none", "english"] = "none"
     max_candidates: int = Field(default=256, ge=1)
     batch_size: int = Field(default=128, gt=0)
     max_parallel_requests: int = Field(gt=0)

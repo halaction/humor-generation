@@ -3,26 +3,24 @@ import asyncio
 from datasets import load_dataset
 
 from src.config import config
-from src.datasets.embeddings import publish_embeddings_dataset
-from src.pipelines.embeddings import EmbeddingsPipeline
-from src.settings import settings
+from src.datasets.jokes import build_jokes_dataset
+from src.paths import DATA_DIR
+from src.pipelines.keywords import KeywordsPipeline
 
 if __name__ == "__main__":
-    dataset = load_dataset(
-        path=settings.HF_DATASET_REPO_ID,
-        name=config.jokes.hf_config_name,
-        split="train[:30]",
-        token=settings.HF_TOKEN,
-    )
+    jokes_path = DATA_DIR / config.jokes.data_filename
+    if not jokes_path.exists():
+        jokes_path = build_jokes_dataset()
 
-    embeddings_pipeline = EmbeddingsPipeline()
-    embeddings_outputs = asyncio.run(embeddings_pipeline.run(dataset))
-    publish_outputs = publish_embeddings_dataset()
-
+    dataset = load_dataset("parquet", data_files=str(jokes_path), split="train[:30]")
+    keywords_pipeline = KeywordsPipeline()
+    keyword_outputs, results_path = asyncio.run(keywords_pipeline.run(dataset))
     print(
         {
-            "embeddings_path": str(embeddings_outputs.data_path),
-            "repo_id": publish_outputs.repo_id,
-            "config_name": publish_outputs.config_name,
+            "jokes_path": str(jokes_path),
+            "results_path": str(results_path),
+            "processed_count": len(keyword_outputs),
         }
     )
+
+    print(keyword_outputs)
