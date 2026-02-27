@@ -2,8 +2,8 @@ import asyncio
 
 import pyarrow.parquet as pq
 
-from datasets import Dataset
 from src.config import EmbeddingsConfig
+from src.paths import DATA_DIR
 from src.pipelines.embeddings import EmbeddingsPipeline
 
 
@@ -49,6 +49,15 @@ class _MockAsyncClient:
         self.embeddings = _MockEmbeddingsAPI()
 
 
+class _InMemoryDataset:
+    def __init__(self, rows: list[dict[str, str]]) -> None:
+        self._rows = rows
+        self.column_names = list(rows[0].keys()) if rows else []
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
 def test_embeddings_pipeline() -> None:
     data_filename = "embeddings-test.parquet"
     embeddings_config = EmbeddingsConfig(
@@ -66,8 +75,11 @@ def test_embeddings_pipeline() -> None:
         pipeline_config=embeddings_config,
         client=mock_client,
     )
+    output_path = DATA_DIR / data_filename
+    if output_path.exists():
+        output_path.unlink()
 
-    dataset = Dataset.from_list(
+    dataset = _InMemoryDataset(
         [
             {"id": "0", "text": "joke about cats"},
             {"id": "1", "text": "joke about dogs"},
@@ -78,14 +90,18 @@ def test_embeddings_pipeline() -> None:
         ]
     )
 
-    outputs = asyncio.run(pipeline.run(dataset))
+    try:
+        outputs = asyncio.run(pipeline.run(dataset))
 
-    assert outputs.data_path.exists()
-    table = pq.read_table(outputs.data_path)
-    assert table.num_rows == 6
-    assert set(table.column("id").to_pylist()) == {"0", "1", "2", "3", "4", "5"}
-    for embedding in table.column("embedding").to_pylist():
-        assert len(embedding) == 4
+        assert outputs.data_path.exists()
+        table = pq.read_table(outputs.data_path)
+        assert table.num_rows == 6
+        assert set(table.column("id").to_pylist()) == {"0", "1", "2", "3", "4", "5"}
+        for embedding in table.column("embedding").to_pylist():
+            assert len(embedding) == 4
 
-    assert mock_client.embeddings.batch_sizes == [2, 2, 2]
-    assert mock_client.embeddings.max_active_calls >= 2
+        assert mock_client.embeddings.batch_sizes == [2, 2, 2]
+        assert mock_client.embeddings.max_active_calls >= 2
+    finally:
+        if output_path.exists():
+            output_path.unlink()

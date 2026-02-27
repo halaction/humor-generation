@@ -9,8 +9,7 @@ keywords:
   ngram_max: 5
   top_n: 5
   mmr_diversity: 0.7
-  length_penalty_alpha: 0.01
-  stopwords: "none"
+  stopwords: false
   max_candidates: 64
   batch_size: 64
   max_parallel_requests: 5
