@@ -1,9 +1,12 @@
 import asyncio
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 import pyarrow as pa
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
@@ -34,7 +37,8 @@ class EmbeddingsPipeline(BasePipeline):
             timeout=self.config.timeout,
         )
 
-        self.output_path = DATA_DIR / self.config.data_filename
+        self.output_dir = DATA_DIR / self.config.hf_config_name
+        self.next_part_index = 0
         self.schema = pa.schema(
             [
                 pa.field("id", pa.string()),
@@ -42,13 +46,20 @@ class EmbeddingsPipeline(BasePipeline):
             ]
         )
 
+    def _get_next_part_index(self) -> int:
+        pattern = re.compile(r"part-(\d+)\.parquet")
+        indices = []
+        for file in self.output_dir.iterdir():
+            match = pattern.search(file.name)
+            if match:
+                indices.append(int(match.group(1)))
+
+        return max(indices) + 1 if indices else 0
+
     def _get_seen_ids(self) -> set[int]:
-
-        if not self.output_path.exists():
-            return set()
-
-        array = pq.read_table(self.output_path, columns=["id"]).column("id").to_numpy()
-        seen_ids = array.unique().to_list()
+        dataset = ds.dataset(self.output_dir, format="parquet")
+        array = dataset.to_table(columns=["id"]).column("id").to_numpy()
+        seen_ids = np.unique(array).tolist()
 
         return set(seen_ids)
 
@@ -80,9 +91,8 @@ class EmbeddingsPipeline(BasePipeline):
         msg = "Unexpected retry error"
         raise RuntimeError(msg)
 
-    def _flush_writer(
+    def _flush_buffer(
         self,
-        writer: pq.ParquetWriter,
         write_buffer: list[EmbeddingsOutputs],
     ) -> None:
         if not write_buffer:
@@ -94,14 +104,22 @@ class EmbeddingsPipeline(BasePipeline):
                 outputs[key].extend(value)
 
         table = pa.Table.from_pydict(outputs, schema=self.schema)
-        writer.write_table(table)
+        path = self.output_dir / f"part-{self.next_part_index:04d}.parquet"
+        pq.write_table(
+            table,
+            where=str(path),
+            compression="zstd",
+            use_content_defined_chunking=True,
+            write_page_index=True,
+        )
+        self.next_part_index += 1
+
         write_buffer.clear()
 
     async def _wait_one(
         self,
         pending_tasks: set[asyncio.Task[EmbeddingsOutputs]],
         write_buffer: list[EmbeddingsOutputs],
-        writer: pq.ParquetWriter,
     ) -> None:
         done, _ = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
@@ -109,35 +127,30 @@ class EmbeddingsPipeline(BasePipeline):
             outputs = task.result()
             write_buffer.append(outputs)
             if len(write_buffer) * self.config.batch_size >= self.config.shard_size:
-                self._flush_writer(writer, write_buffer)
+                self._flush_buffer(write_buffer)
 
     async def run(
         self,
         jokes: Dataset,
         resume: bool = False,
     ) -> Path:
-
-        writer = pq.ParquetWriter(
-            where=str(self.output_path),
-            schema=self.schema,
-            compression="zstd",
-            use_content_defined_chunking=True,
-            write_page_index=True,
-        )
-        write_buffer: list[EmbeddingsOutputs] = []
-
-        semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        pending_tasks: set[asyncio.Task[EmbeddingsOutputs]] = set()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.next_part_index = self._get_next_part_index()
 
         dataset = jokes
 
         if resume:
             seen_ids = self._get_seen_ids()
-            dataset = dataset.filter(lambda item: item["id"] in seen_ids)
-        elif not self.output_path.exists():
-            self.output_path.unlink()
+            dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
+        elif self.next_part_index == 0:
+            for file in self.output_dir.iterdir():
+                file.unlink()
 
         dataset = dataset.batch(self.config.batch_size)
+
+        write_buffer: list[EmbeddingsOutputs] = []
+        semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
+        pending_tasks: set[asyncio.Task[EmbeddingsOutputs]] = set()
 
         for batch in tqdm(dataset):
             batch = cast("dict[str, list[Any]]", batch)
@@ -150,33 +163,22 @@ class EmbeddingsPipeline(BasePipeline):
                 await self._wait_one(
                     pending_tasks=pending_tasks,
                     write_buffer=write_buffer,
-                    writer=writer,
                 )
 
         while pending_tasks:
             await self._wait_one(
                 pending_tasks=pending_tasks,
                 write_buffer=write_buffer,
-                writer=writer,
             )
 
-        self._flush_writer(
-            write_buffer=write_buffer,
-            writer=writer,
-        )
-
-        writer.close()
-
-        if not self.output_path.exists():
-            msg = "No embedding outputs were written."
-            raise ValueError(msg)
+        self._flush_buffer(write_buffer)
 
         logger.info(
             "run.done",
             model=self.config.model,
-            output_path=str(self.output_path),
+            output_dir=str(self.output_dir),
         )
-        return self.output_path
+        return self.output_dir
 
 
 async def main() -> None:
@@ -184,18 +186,18 @@ async def main() -> None:
     if not jokes_path.exists():
         jokes_path = build_jokes_dataset()
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:30]")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:50]")
     pipeline = EmbeddingsPipeline()
-    output_path = await pipeline.run(jokes, resume=False)
+    output_dir = await pipeline.run(jokes, resume=True)
     print(
         {
             "jokes_path": str(jokes_path),
-            "embeddings_path": str(output_path),
+            "embeddings_dir": str(output_dir),
         }
     )
 
-    embeddings = load_dataset("parquet", data_files=str(output_path), split="train[:30]")
-    print(embeddings)
+    embeddings = load_dataset("parquet", data_dir=str(output_dir), split="train[:]")
+    print(embeddings[0])
 
 
 if __name__ == "__main__":
