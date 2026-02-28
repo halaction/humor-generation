@@ -2,11 +2,10 @@ import asyncio
 from collections import Counter
 from itertools import batched
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
-import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 from openai import AsyncOpenAI
@@ -17,10 +16,17 @@ from datasets import Dataset, load_dataset
 from src.config import KeywordsConfig, config
 from src.datasets.embeddings import build_embeddings_dataset
 from src.datasets.jokes import build_jokes_dataset
+from src.logging import get_logger
 from src.models import KeywordsInputs, KeywordsOutputs
 from src.paths import DATA_DIR
 from src.pipelines.base import BasePipeline
 from src.settings import settings
+
+if TYPE_CHECKING:
+    import polars as pl
+
+
+logger = get_logger(__name__)
 
 
 def _cosine_relevance_scores(
@@ -79,19 +85,21 @@ class KeywordsPipeline(BasePipeline):
     def __init__(
         self,
         pipeline_config: KeywordsConfig | None = None,
+        output_dir: Path | None = None,
         client: AsyncOpenAI | None = None,
     ) -> None:
         self.config = pipeline_config or config.keywords
+        self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
             timeout=self.config.timeout,
         )
+        self.next_part_index = 0
 
-        self.output_path = DATA_DIR / self.config.data_filename
         self.schema = pa.schema(
             [
-                pa.field("joke_id", pa.string()),
+                pa.field("id", pa.string()),
                 pa.field("keywords", pa.list_(pa.string())),
                 pa.field("scores", pa.list_(pa.float32())),
             ]
@@ -103,16 +111,6 @@ class KeywordsPipeline(BasePipeline):
             ngram_range=ngram_range,
             stop_words=stop_words,
         ).build_analyzer()
-
-    def _get_seen_ids(self) -> set[int]:
-
-        if not self.output_path.exists():
-            return set()
-
-        array = pq.read_table(self.output_path, columns=["id"]).column("id").to_numpy()
-        seen_ids = array.unique().to_list()
-
-        return set(seen_ids)
 
     def _extract_candidates(self, text: str) -> list[str]:
         cleaned_text = text.strip()
@@ -184,35 +182,12 @@ class KeywordsPipeline(BasePipeline):
 
             return KeywordsOutputs(id=inputs.id, keywords=keywords, scores=scores)
 
-    def _flush_writer(
-        self,
-        writer: pq.ParquetWriter,
-        write_buffer: list[KeywordsOutputs],
-    ) -> None:
-        if not write_buffer:
-            return
+    def _get_table(self, write_buffer: list[KeywordsOutputs]) -> pa.Table:
+        outputs = [item.model_dump() for item in write_buffer]
+        return pa.Table.from_pylist(outputs, schema=self.schema)
 
-        outputs = []
-        for item in write_buffer:
-            outputs.append(item.model_dump())
-
-        table = pa.Table.from_pylist(outputs, schema=self.schema)
-        writer.write_table(table)
-        write_buffer.clear()
-
-    async def _wait_one(
-        self,
-        pending_tasks: set[asyncio.Task[KeywordsOutputs]],
-        write_buffer: list[KeywordsOutputs],
-        writer: pq.ParquetWriter,
-    ) -> None:
-        done, _ = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in done:
-            pending_tasks.remove(task)
-            outputs = task.result()
-            write_buffer.append(outputs)
-            if len(write_buffer) >= self.config.shard_size:
-                self._flush_writer(writer, write_buffer)
+    def _check_buffer_size(self, write_buffer: list[KeywordsOutputs]) -> bool:
+        return len(write_buffer) >= self.config.shard_size
 
     async def run(
         self,
@@ -220,18 +195,8 @@ class KeywordsPipeline(BasePipeline):
         embeddings: Dataset,
         resume: bool = False,
     ) -> Path:
-
-        writer = pq.ParquetWriter(
-            where=str(self.output_path),
-            schema=self.schema,
-            compression="zstd",
-            use_content_defined_chunking=True,
-            write_page_index=True,
-        )
-        write_buffer: list[KeywordsOutputs] = []
-
-        semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        pending_tasks: set[asyncio.Task[KeywordsOutputs]] = set()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.next_part_index = self._get_next_part_index()
 
         jokes_frame = cast("pl.DataFrame", jokes.to_polars())
         embeddings_frame = cast("pl.DataFrame", embeddings.to_polars())
@@ -240,9 +205,14 @@ class KeywordsPipeline(BasePipeline):
 
         if resume:
             seen_ids = self._get_seen_ids()
-            dataset = dataset.filter(lambda item: item["id"] in seen_ids)
-        elif not self.output_path.exists():
-            self.output_path.unlink()
+            dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
+        elif self.next_part_index == 0:
+            for file in self.output_dir.iterdir():
+                file.unlink()
+
+        write_buffer: list[KeywordsOutputs] = []
+        semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
+        pending_tasks: set[asyncio.Task[KeywordsOutputs]] = set()
 
         for item in tqdm(dataset):
             item = cast("dict[str, Any]", item)
@@ -259,24 +229,25 @@ class KeywordsPipeline(BasePipeline):
                 await self._wait_one(
                     pending_tasks=pending_tasks,
                     write_buffer=write_buffer,
-                    writer=writer,
                 )
 
         while pending_tasks:
             await self._wait_one(
                 pending_tasks=pending_tasks,
                 write_buffer=write_buffer,
-                writer=writer,
             )
 
-        self._flush_writer(
+        self._flush_buffer(
             write_buffer=write_buffer,
-            writer=writer,
         )
 
-        writer.close()
+        logger.info(
+            "run.done",
+            model=self.config.model,
+            output_dir=str(self.output_dir),
+        )
 
-        return self.output_path
+        return self.output_dir
 
 
 async def main() -> None:
@@ -284,24 +255,24 @@ async def main() -> None:
     if not jokes_path.exists():
         jokes_path = build_jokes_dataset()
 
-    embeddings_path = DATA_DIR / config.embeddings.data_filename
-    if not embeddings_path.exists():
-        embeddings_path = build_embeddings_dataset().data_path
+    embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
+    if not embeddings_dir.exists():
+        embeddings_dir = build_embeddings_dataset().data_path
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:30]")
-    embeddings = load_dataset("parquet", data_files=str(embeddings_path), split="train")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:50]")
+    embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split="train")
 
     pipeline = KeywordsPipeline()
-    output_path = await pipeline.run(jokes, embeddings, resume=False)
+    output_dir = await pipeline.run(jokes, embeddings, resume=True)
     print(
         {
             "jokes_path": str(jokes_path),
-            "keywords_path": str(output_path),
+            "keywords_dir": str(output_dir),
         }
     )
 
-    keywords = load_dataset("parquet", data_files=str(output_path), split="train[:30]")
-    print(keywords)
+    keywords = load_dataset("parquet", data_dir=str(output_dir), split="train[:]")
+    print(keywords[:])
 
 
 if __name__ == "__main__":

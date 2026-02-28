@@ -4,10 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, cast
 
-import numpy as np
 import pyarrow as pa
-import pyarrow.dataset as ds
-import pyarrow.parquet as pq
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
@@ -26,42 +23,25 @@ logger = get_logger(__name__)
 class EmbeddingsPipeline(BasePipeline):
     def __init__(
         self,
-        *,
         pipeline_config: EmbeddingsConfig | None = None,
+        output_dir: Path | None = None,
         client: AsyncOpenAI | None = None,
     ) -> None:
         self.config = pipeline_config or config.embeddings
+        self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
             timeout=self.config.timeout,
         )
-
-        self.output_dir = DATA_DIR / self.config.hf_config_name
         self.next_part_index = 0
+
         self.schema = pa.schema(
             [
                 pa.field("id", pa.string()),
                 pa.field("embedding", pa.list_(pa.float32(), self.config.dimensions)),
             ]
         )
-
-    def _get_next_part_index(self) -> int:
-        pattern = re.compile(r"part-(\d+)\.parquet")
-        indices = []
-        for file in self.output_dir.iterdir():
-            match = pattern.search(file.name)
-            if match:
-                indices.append(int(match.group(1)))
-
-        return max(indices) + 1 if indices else 0
-
-    def _get_seen_ids(self) -> set[int]:
-        dataset = ds.dataset(self.output_dir, format="parquet")
-        array = dataset.to_table(columns=["id"]).column("id").to_numpy()
-        seen_ids = np.unique(array).tolist()
-
-        return set(seen_ids)
 
     async def _embed_jokes(
         self,
@@ -91,43 +71,16 @@ class EmbeddingsPipeline(BasePipeline):
         msg = "Unexpected retry error"
         raise RuntimeError(msg)
 
-    def _flush_buffer(
-        self,
-        write_buffer: list[EmbeddingsOutputs],
-    ) -> None:
-        if not write_buffer:
-            return
-
+    def _get_table(self, write_buffer: list[EmbeddingsOutputs]) -> pa.Table:
         outputs = defaultdict(list)
         for batch in write_buffer:
             for key, value in batch.model_dump().items():
                 outputs[key].extend(value)
 
-        table = pa.Table.from_pydict(outputs, schema=self.schema)
-        path = self.output_dir / f"part-{self.next_part_index:04d}.parquet"
-        pq.write_table(
-            table,
-            where=str(path),
-            compression="zstd",
-            use_content_defined_chunking=True,
-            write_page_index=True,
-        )
-        self.next_part_index += 1
+        return pa.Table.from_pydict(outputs, schema=self.schema)
 
-        write_buffer.clear()
-
-    async def _wait_one(
-        self,
-        pending_tasks: set[asyncio.Task[EmbeddingsOutputs]],
-        write_buffer: list[EmbeddingsOutputs],
-    ) -> None:
-        done, _ = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in done:
-            pending_tasks.remove(task)
-            outputs = task.result()
-            write_buffer.append(outputs)
-            if len(write_buffer) * self.config.batch_size >= self.config.shard_size:
-                self._flush_buffer(write_buffer)
+    def _check_buffer_size(self, write_buffer: list[EmbeddingsOutputs]) -> bool:
+        return len(write_buffer) * self.config.batch_size >= self.config.shard_size
 
     async def run(
         self,
@@ -192,7 +145,7 @@ async def main() -> None:
     print(
         {
             "jokes_path": str(jokes_path),
-            "embeddings_dir": str(output_dir),
+            "embeddings_path": str(output_dir),
         }
     )
 
