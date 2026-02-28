@@ -443,6 +443,7 @@ dependencies = [
     { name = "datasets" },
     { name = "huggingface-hub" },
     { name = "jinja2" },
+    { name = "numpy" },
     { name = "openai" },
     { name = "pathlib" },
     { name = "polars" },
@@ -453,6 +454,7 @@ dependencies = [
     { name = "requests" },
     { name = "scikit-learn" },
     { name = "structlog" },
+    { name = "tqdm" },
 ]
 
 [package.dev-dependencies]
@@ -466,6 +468,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.3.0" },
     { name = "huggingface-hub", specifier = ">=1.0.1" },
     { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "numpy", specifier = ">=2.4.2" },
     { name = "openai", specifier = ">=2.21.0" },
     { name = "pathlib", specifier = ">=1.0.1" },
     { name = "polars", specifier = ">=1.38.1" },
@@ -476,6 +479,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.3" },
     { name = "scikit-learn", specifier = ">=1.8.0" },
     { name = "structlog", specifier = ">=25.4.0" },
+    { name = "tqdm", specifier = ">=4.67.3" },
 ]
 
 [package.metadata.requires-dev]
