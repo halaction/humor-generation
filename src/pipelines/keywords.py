@@ -257,9 +257,9 @@ async def main() -> None:
 
     embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
     if not embeddings_dir.exists():
-        embeddings_dir = build_embeddings_dataset().data_path
+        embeddings_dir = build_embeddings_dataset()
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:50]")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:1000]")
     embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split="train")
 
     pipeline = KeywordsPipeline()

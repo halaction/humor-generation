@@ -6,8 +6,8 @@ keywords:
   hf_config_name: "keywords"
   data_filename: "keywords.parquet"
   ngram_min: 1
-  ngram_max: 2
-  top_n: 5
+  ngram_max: 1
+  top_n: 3
   mmr_diversity: 0.7
   stopwords: false
   max_candidates: 64

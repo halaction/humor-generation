@@ -230,3 +230,7 @@ def publish_jokes_dataset(
         split=split,
     )
     return repo_id, config_name
+
+
+if __name__ == "__main__":
+    publish_jokes_dataset()
