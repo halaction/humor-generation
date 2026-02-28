@@ -1,25 +1,26 @@
 import asyncio
-from typing import Any, cast
 from collections import defaultdict
+from pathlib import Path
+from typing import Any, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from openai import AsyncOpenAI
-from pydantic import BaseModel
 from tqdm.auto import tqdm
 
 from datasets import Dataset, load_dataset
 from src.config import EmbeddingsConfig, config
 from src.datasets.jokes import build_jokes_dataset
 from src.logging import get_logger
+from src.models import EmbeddingsInputs, EmbeddingsOutputs
 from src.paths import DATA_DIR
+from src.pipelines.base import BasePipeline
 from src.settings import settings
-from src.models import JokesBatch, EmbeddingsBatch, EmbeddingsOutputs
 
 logger = get_logger(__name__)
 
 
-class EmbeddingsPipeline:
+class EmbeddingsPipeline(BasePipeline):
     def __init__(
         self,
         *,
@@ -41,11 +42,21 @@ class EmbeddingsPipeline:
             ]
         )
 
-    async def _embed_batch(
+    def _get_seen_ids(self) -> set[int]:
+
+        if not self.output_path.exists():
+            return set()
+
+        array = pq.read_table(self.output_path, columns=["id"]).column("id").to_numpy()
+        seen_ids = array.unique().to_list()
+
+        return set(seen_ids)
+
+    async def _embed_jokes(
         self,
-        batch: JokesBatch,
+        batch: EmbeddingsInputs,
         semaphore: asyncio.Semaphore,
-    ) -> EmbeddingsBatch:
+    ) -> EmbeddingsOutputs:
         async with semaphore:
             for attempt in range(1, self.config.max_retries + 1):
                 try:
@@ -55,9 +66,9 @@ class EmbeddingsPipeline:
                         dimensions=self.config.dimensions,
                     )
 
-                    outputs = EmbeddingsBatch(
+                    outputs = EmbeddingsOutputs(
                         id=batch.id,
-                        embedding=response.data,  # type: ignore
+                        embedding=[item.embedding for item in response.data],
                     )
                 except Exception:
                     if attempt + 1 >= self.config.max_retries:
@@ -72,7 +83,7 @@ class EmbeddingsPipeline:
     def _flush_writer(
         self,
         writer: pq.ParquetWriter,
-        write_buffer: list[EmbeddingsBatch],
+        write_buffer: list[EmbeddingsOutputs],
     ) -> None:
         if not write_buffer:
             return
@@ -88,8 +99,8 @@ class EmbeddingsPipeline:
 
     async def _wait_one(
         self,
-        pending_tasks: set[asyncio.Task[EmbeddingsBatch]],
-        write_buffer: list[EmbeddingsBatch],
+        pending_tasks: set[asyncio.Task[EmbeddingsOutputs]],
+        write_buffer: list[EmbeddingsOutputs],
         writer: pq.ParquetWriter,
     ) -> None:
         done, _ = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -104,7 +115,7 @@ class EmbeddingsPipeline:
         self,
         jokes: Dataset,
         resume: bool = False,
-    ) -> EmbeddingsOutputs:
+    ) -> Path:
 
         writer = pq.ParquetWriter(
             where=str(self.output_path),
@@ -113,18 +124,26 @@ class EmbeddingsPipeline:
             use_content_defined_chunking=True,
             write_page_index=True,
         )
-        write_buffer: list[EmbeddingsBatch] = []
+        write_buffer: list[EmbeddingsOutputs] = []
 
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        pending_tasks: set[asyncio.Task[EmbeddingsBatch]] = set()
+        pending_tasks: set[asyncio.Task[EmbeddingsOutputs]] = set()
 
-        dataset = jokes.batch(self.config.batch_size)
+        dataset = jokes
 
-        for batch in tqdm(dataset, total=len(dataset)):
+        if resume:
+            seen_ids = self._get_seen_ids()
+            dataset = dataset.filter(lambda item: item["id"] in seen_ids)
+        elif not self.output_path.exists():
+            self.output_path.unlink()
+
+        dataset = dataset.batch(self.config.batch_size)
+
+        for batch in tqdm(dataset):
             batch = cast("dict[str, list[Any]]", batch)
-            batch = JokesBatch(id=batch["id"], text=batch["text"])
+            inputs = EmbeddingsInputs(id=batch["id"], text=batch["text"])
 
-            task = asyncio.create_task(self._embed_batch(batch, semaphore))
+            task = asyncio.create_task(self._embed_jokes(inputs, semaphore))
             pending_tasks.add(task)
 
             if len(pending_tasks) >= self.config.max_parallel_requests:
@@ -157,7 +176,7 @@ class EmbeddingsPipeline:
             model=self.config.model,
             output_path=str(self.output_path),
         )
-        return EmbeddingsOutputs(output_path=self.output_path)
+        return self.output_path
 
 
 async def main() -> None:
@@ -165,15 +184,18 @@ async def main() -> None:
     if not jokes_path.exists():
         jokes_path = build_jokes_dataset()
 
-    inputs = load_dataset("parquet", data_files=str(jokes_path), split="train")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:30]")
     pipeline = EmbeddingsPipeline()
-    outputs = await pipeline.run(inputs)
+    output_path = await pipeline.run(jokes, resume=False)
     print(
         {
             "jokes_path": str(jokes_path),
-            "embeddings_path": str(outputs.output_path),
+            "embeddings_path": str(output_path),
         }
     )
+
+    embeddings = load_dataset("parquet", data_files=str(output_path), split="train[:30]")
+    print(embeddings)
 
 
 if __name__ == "__main__":

@@ -1,293 +1,308 @@
 import asyncio
-import math
-from collections.abc import Iterable
+from collections import Counter
 from itertools import batched
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
+import numpy.typing as npt
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 from openai import AsyncOpenAI
-from pydantic import BaseModel
 from sklearn.feature_extraction.text import CountVectorizer
+from tqdm.auto import tqdm
 
-from datasets import Dataset
-from src.config import EmbeddingsConfig, KeywordsConfig, config
+from datasets import Dataset, load_dataset
+from src.config import KeywordsConfig, config
+from src.datasets.embeddings import build_embeddings_dataset
+from src.datasets.jokes import build_jokes_dataset
+from src.models import KeywordsInputs, KeywordsOutputs
 from src.paths import DATA_DIR
+from src.pipelines.base import BasePipeline
 from src.settings import settings
 
 
-class KeywordsItem(BaseModel):
-    joke_id: str
-    keywords: list[str]
-    scores: list[float]
+def _cosine_relevance_scores(
+    joke_embedding: npt.NDArray[np.float32],
+    candidate_embeddings: npt.NDArray[np.float32],
+) -> npt.NDArray[np.float32]:
+    joke_norm = np.linalg.norm(joke_embedding)
+    candidate_norms = np.linalg.norm(candidate_embeddings, axis=1)
+    relevance_scores = np.zeros(candidate_embeddings.shape[0], dtype=np.float32)
+    denominator = candidate_norms * joke_norm
+    valid_mask = denominator > 0
 
-
-class KeywordsOutputs(BaseModel):
-    results: list[KeywordsItem]
-    data_path: Path
-
-
-def _cosine_similarity(left: list[float], right: list[float]) -> float:
-    left_norm = math.sqrt(sum(value * value for value in left))
-    right_norm = math.sqrt(sum(value * value for value in right))
-    if left_norm == 0.0 or right_norm == 0.0:
-        return 0.0
-
-    dot = sum(left_value * right_value for left_value, right_value in zip(left, right, strict=True))
-    return dot / (left_norm * right_norm)
+    if np.any(valid_mask):
+        relevance_scores[valid_mask] = (candidate_embeddings[valid_mask] @ joke_embedding) / denominator[valid_mask]
+    return relevance_scores
 
 
 def _select_top_indices_with_mmr(
-    candidate_vectors: list[list[float]],
-    relevance_scores: list[float],
+    candidate_embeddings: npt.NDArray[np.float32],
+    relevance_scores: npt.NDArray[np.float32],
     top_n: int,
     diversity: float,
-) -> list[int]:
-    if not candidate_vectors or top_n <= 0:
-        return []
+) -> npt.NDArray[np.int64]:
+    candidate_count = candidate_embeddings.shape[0]
+    if candidate_count == 0 or top_n <= 0:
+        return np.array([], dtype=np.int64)
 
-    max_keywords = min(top_n, len(candidate_vectors))
+    max_keywords = min(top_n, candidate_count)
     selected_indices: list[int] = []
-    available_indices = set(range(len(candidate_vectors)))
+    available_mask = np.ones(candidate_count, dtype=bool)
 
-    first_index = max(available_indices, key=lambda idx: relevance_scores[idx])
+    first_index = int(np.argmax(relevance_scores))
     selected_indices.append(first_index)
-    available_indices.remove(first_index)
+    available_mask[first_index] = False
 
-    while len(selected_indices) < max_keywords and available_indices:
-        best_index = None
-        best_score = -math.inf
-        for candidate_index in available_indices:
-            redundancy = max(
-                _cosine_similarity(candidate_vectors[candidate_index], candidate_vectors[chosen_index])
-                for chosen_index in selected_indices
-            )
-            mmr_score = ((1.0 - diversity) * relevance_scores[candidate_index]) - (diversity * redundancy)
-            if mmr_score > best_score:
-                best_score = mmr_score
-                best_index = candidate_index
+    candidate_norms = np.linalg.norm(candidate_embeddings, axis=1)
+    normalized_vectors = np.zeros_like(candidate_embeddings)
+    nonzero_mask = candidate_norms > 0
+    normalized_vectors[nonzero_mask] = candidate_embeddings[nonzero_mask] / candidate_norms[nonzero_mask, np.newaxis]
 
-        if best_index is None:
-            break
+    while len(selected_indices) < max_keywords and np.any(available_mask):
+        available_indices = np.flatnonzero(available_mask)
+        selected_matrix = normalized_vectors[np.array(selected_indices, dtype=np.int64)]
+        redundancy_scores = normalized_vectors[available_indices] @ selected_matrix.T
+        max_redundancy = np.max(redundancy_scores, axis=1)
+        mmr_scores = ((1.0 - diversity) * relevance_scores[available_indices]) - (diversity * max_redundancy)
+        best_local_index = int(np.argmax(mmr_scores))
+        best_index = int(available_indices[best_local_index])
         selected_indices.append(best_index)
-        available_indices.remove(best_index)
+        available_mask[best_index] = False
 
-    return selected_indices
+    return np.array(selected_indices, dtype=np.int64)
 
 
-class KeywordsPipeline:
+class KeywordsPipeline(BasePipeline):
     def __init__(
         self,
-        *,
-        keywords_config: KeywordsConfig | None = None,
-        embeddings_config: EmbeddingsConfig | None = None,
-        client: Any | None = None,
+        pipeline_config: KeywordsConfig | None = None,
+        client: AsyncOpenAI | None = None,
     ) -> None:
-        self.config = keywords_config or config.keywords
-        self.embedding_config = embeddings_config or config.embeddings
-        if self.config.ngram_min > self.config.ngram_max:
-            msg = (
-                f"Invalid n-gram range: ngram_min={self.config.ngram_min} must be <= ngram_max={self.config.ngram_max}."
-            )
-            raise ValueError(msg)
-
-        self.stop_words = "english" if self.config.stopwords else None
+        self.config = pipeline_config or config.keywords
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
             timeout=self.config.timeout,
         )
-        self.embedding_batch_size = max(1, min(self.config.batch_size, self.embedding_config.batch_size))
+
+        self.output_path = DATA_DIR / self.config.data_filename
+        self.schema = pa.schema(
+            [
+                pa.field("joke_id", pa.string()),
+                pa.field("keywords", pa.list_(pa.string())),
+                pa.field("scores", pa.list_(pa.float32())),
+            ]
+        )
+
+        ngram_range = (self.config.ngram_min, self.config.ngram_max)
+        stop_words = "english" if self.config.stopwords else None
+        self._candidate_analyzer = CountVectorizer(
+            ngram_range=ngram_range,
+            stop_words=stop_words,
+        ).build_analyzer()
+
+    def _get_seen_ids(self) -> set[int]:
+
+        if not self.output_path.exists():
+            return set()
+
+        array = pq.read_table(self.output_path, columns=["id"]).column("id").to_numpy()
+        seen_ids = array.unique().to_list()
+
+        return set(seen_ids)
 
     def _extract_candidates(self, text: str) -> list[str]:
         cleaned_text = text.strip()
         if not cleaned_text:
             return []
 
-        vectorizer = CountVectorizer(
-            ngram_range=(self.config.ngram_min, self.config.ngram_max),
-            stop_words=self.stop_words,
-            max_features=self.config.max_candidates,
-        )
-        try:
-            vectorizer.fit([cleaned_text])
-        except ValueError:
+        candidate_counts = Counter(token.strip() for token in self._candidate_analyzer(cleaned_text))
+        if not candidate_counts:
             return []
 
-        return [str(candidate).strip() for candidate in vectorizer.get_feature_names_out() if str(candidate).strip()]
+        return [candidate for candidate, _ in candidate_counts.most_common(self.config.max_candidates) if candidate]
 
-    async def _embed_text_batch(self, texts: list[str]) -> list[list[float]]:
-        for attempt in range(self.config.max_retries):
+    async def _embed_batch(self, batch: list[str]) -> list[list[float]]:
+        for attempt in range(1, self.config.max_retries + 1):
             try:
                 response = await self.client.embeddings.create(
-                    model=self.embedding_config.model,
-                    input=texts,
-                    dimensions=self.embedding_config.dimensions,
+                    model=self.config.model,
+                    input=batch,
+                    dimensions=self.config.dimensions,
                 )
+                embeddings = [item.embedding for item in response.data]
             except Exception:
-                if attempt + 1 >= self.config.max_retries:
+                if attempt >= self.config.max_retries:
                     raise
-                await asyncio.sleep(2**attempt)
+                await asyncio.sleep(2 ** (attempt - 1))
             else:
-                vectors = [item.embedding for item in response.data]
-                if len(vectors) != len(texts):
-                    msg = f"Embedding API returned mismatched outputs: expected={len(texts)} got={len(vectors)}"
-                    raise ValueError(msg)
-                return vectors
+                return embeddings
 
-        msg = "Unexpected embedding retry flow."
+        msg = "Unexpected retry error."
         raise RuntimeError(msg)
 
     async def _embed_texts(self, texts: list[str]) -> list[list[float]]:
         embeddings: list[list[float]] = []
-        for batch in batched(texts, self.embedding_batch_size):
-            embeddings.extend(await self._embed_text_batch(list(batch)))
+        for batch in batched(texts, self.config.batch_size, strict=False):
+            embeddings.extend(await self._embed_batch(list(batch)))
         return embeddings
 
-    async def _process_joke(
+    async def _extract_keywords(
         self,
-        joke_id: str,
-        joke: str,
-        joke_embedding: list[float],
+        inputs: KeywordsInputs,
         semaphore: asyncio.Semaphore,
-    ) -> KeywordsItem:
+    ) -> KeywordsOutputs:
         async with semaphore:
-            cleaned_joke = str(joke).strip()
-            candidates = self._extract_candidates(cleaned_joke)
+            candidates = self._extract_candidates(inputs.text)
             if not candidates:
-                return KeywordsItem(joke_id=joke_id, keywords=[], scores=[])
+                return KeywordsOutputs(id=inputs.id, keywords=[], scores=[])
 
-            candidate_vectors = await self._embed_texts(candidates)
+            candidate_embeddings = await self._embed_texts(candidates)
 
-            relevance_scores = [_cosine_similarity(joke_embedding, vector) for vector in candidate_vectors]
+            candidate_embeddings = np.asarray(candidate_embeddings, dtype=np.float32)
+            joke_embedding = np.asarray(inputs.embedding, dtype=np.float32)
+
+            relevance_scores = _cosine_relevance_scores(
+                joke_embedding=joke_embedding,
+                candidate_embeddings=candidate_embeddings,
+            )
             selected_indices = _select_top_indices_with_mmr(
-                candidate_vectors=candidate_vectors,
+                candidate_embeddings=candidate_embeddings,
                 relevance_scores=relevance_scores,
                 top_n=self.config.top_n,
                 diversity=self.config.mmr_diversity,
             )
-            keywords = [candidates[index] for index in selected_indices]
-            scores = [relevance_scores[index] for index in selected_indices]
-            return KeywordsItem(joke_id=joke_id, keywords=keywords, scores=scores)
 
-    @staticmethod
-    def _load_existing_outputs(path: Path) -> dict[str, KeywordsItem]:
-        if not path.exists():
-            return {}
+            keywords = []
+            scores = []
+            for index in selected_indices.tolist():
+                keywords.append(candidates[index])
+                scores.append(relevance_scores[index])
 
-        table = pq.read_table(path)
-        required_columns = {"joke_id", "keywords", "scores"}
-        if not required_columns.issubset(set(table.schema.names)):
-            return {}
+            return KeywordsOutputs(id=inputs.id, keywords=keywords, scores=scores)
 
-        outputs: dict[str, KeywordsItem] = {}
-        for row in table.select(["joke_id", "keywords", "scores"]).to_pylist():
-            item = KeywordsItem.model_validate(row)
-            outputs[item.joke_id] = item
-        return outputs
-
-    @staticmethod
-    def _write_parquet(outputs: list[KeywordsItem], output_path: Path) -> None:
-        table = pa.Table.from_pylist(
-            [item.model_dump(mode="python") for item in outputs],
-            schema=pa.schema(
-                [
-                    pa.field("joke_id", pa.string()),
-                    pa.field("keywords", pa.list_(pa.string())),
-                    pa.field("scores", pa.list_(pa.float32())),
-                ]
-            ),
-        )
-        pq.write_table(
-            table,
-            output_path,
-            compression="zstd",
-            use_content_defined_chunking=True,
-            write_page_index=True,
-        )
-
-    @staticmethod
-    def _sort_joke_id(value: str) -> tuple[int, Any]:
-        return (0, int(value)) if value.isdigit() else (1, value)
-
-    def _consume_completed(
+    def _flush_writer(
         self,
-        completed_tasks: Iterable[asyncio.Task[KeywordsItem]],
-        seen_ids: set[str],
-        outputs: list[KeywordsItem],
+        writer: pq.ParquetWriter,
+        write_buffer: list[KeywordsOutputs],
     ) -> None:
-        for task in completed_tasks:
-            result = task.result()
-            if result.joke_id in seen_ids:
-                continue
-            seen_ids.add(result.joke_id)
-            outputs.append(result)
+        if not write_buffer:
+            return
+
+        outputs = []
+        for item in write_buffer:
+            outputs.append(item.model_dump())
+
+        table = pa.Table.from_pylist(outputs, schema=self.schema)
+        writer.write_table(table)
+        write_buffer.clear()
+
+    async def _wait_one(
+        self,
+        pending_tasks: set[asyncio.Task[KeywordsOutputs]],
+        write_buffer: list[KeywordsOutputs],
+        writer: pq.ParquetWriter,
+    ) -> None:
+        done, _ = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            pending_tasks.remove(task)
+            outputs = task.result()
+            write_buffer.append(outputs)
+            if len(write_buffer) >= self.config.shard_size:
+                self._flush_writer(writer, write_buffer)
 
     async def run(
         self,
         jokes: Dataset,
         embeddings: Dataset,
-    ) -> KeywordsOutputs:
-        if "id" not in jokes.column_names:
-            msg = "Jokes dataset must contain an 'id' column."
-            raise ValueError(msg)
-        if "text" not in jokes.column_names:
-            msg = "Jokes dataset must contain a 'text' column."
-            raise ValueError(msg)
-        if "id" not in embeddings.column_names:
-            msg = "Embeddings dataset must contain an 'id' column."
-            raise ValueError(msg)
-        if "embedding" not in embeddings.column_names:
-            msg = "Embeddings dataset must contain an 'embedding' column."
-            raise ValueError(msg)
+        resume: bool = False,
+    ) -> Path:
 
-        jokes_frame = pl.from_arrow(cast(pa.Table, cast("Any", jokes).data.table).select(["id", "text"]))
-        embeddings_frame = pl.from_arrow(cast(pa.Table, cast("Any", embeddings).data.table).select(["id", "embedding"]))
-        joined_frame = jokes_frame.join(embeddings_frame, on="id", how="inner").select(["id", "text", "embedding"])
+        writer = pq.ParquetWriter(
+            where=str(self.output_path),
+            schema=self.schema,
+            compression="zstd",
+            use_content_defined_chunking=True,
+            write_page_index=True,
+        )
+        write_buffer: list[KeywordsOutputs] = []
 
-        output_path = DATA_DIR / self.config.data_filename
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        existing_outputs = self._load_existing_outputs(output_path)
-        seen_ids = set(existing_outputs)
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        outputs: list[KeywordsItem] = []
-        pending_tasks: set[asyncio.Task[KeywordsItem]] = set()
+        pending_tasks: set[asyncio.Task[KeywordsOutputs]] = set()
 
-        for joke_id, joke_text, joke_embedding in joined_frame.iter_rows():
-            if joke_id in seen_ids:
-                continue
-            if len(joke_embedding) != self.embedding_config.dimensions:
-                msg = (
-                    f"Inconsistent embedding size for id={joke_id}: expected "
-                    f"{self.embedding_config.dimensions}, got {len(joke_embedding)}"
-                )
-                raise ValueError(msg)
+        jokes_frame = cast("pl.DataFrame", jokes.to_polars())
+        embeddings_frame = cast("pl.DataFrame", embeddings.to_polars())
+        joined_frame = jokes_frame.join(embeddings_frame, on="id", how="inner").select(["id", "text", "embedding"])
+        dataset = Dataset.from_polars(joined_frame)
 
-            task = asyncio.create_task(
-                self._process_joke(
-                    joke_id=joke_id,
-                    joke=joke_text,
-                    joke_embedding=joke_embedding,
-                    semaphore=semaphore,
-                )
+        if resume:
+            seen_ids = self._get_seen_ids()
+            dataset = dataset.filter(lambda item: item["id"] in seen_ids)
+        elif not self.output_path.exists():
+            self.output_path.unlink()
+
+        for item in tqdm(dataset):
+            item = cast("dict[str, Any]", item)
+            inputs = KeywordsInputs(
+                id=item["id"],
+                text=item["text"],
+                embedding=item["embedding"],
             )
+
+            task = asyncio.create_task(self._extract_keywords(inputs=inputs, semaphore=semaphore))
             pending_tasks.add(task)
 
             if len(pending_tasks) >= self.config.max_parallel_requests:
-                done, _ = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
-                pending_tasks -= done
-                self._consume_completed(completed_tasks=done, seen_ids=seen_ids, outputs=outputs)
+                await self._wait_one(
+                    pending_tasks=pending_tasks,
+                    write_buffer=write_buffer,
+                    writer=writer,
+                )
 
         while pending_tasks:
-            done, _ = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
-            pending_tasks -= done
-            self._consume_completed(completed_tasks=done, seen_ids=seen_ids, outputs=outputs)
+            await self._wait_one(
+                pending_tasks=pending_tasks,
+                write_buffer=write_buffer,
+                writer=writer,
+            )
 
-        merged_outputs = list(existing_outputs.values())
-        merged_outputs.extend(outputs)
-        merged_outputs.sort(key=lambda item: self._sort_joke_id(item.joke_id))
-        self._write_parquet(outputs=merged_outputs, output_path=output_path)
-        return KeywordsOutputs(results=outputs, data_path=output_path)
+        self._flush_writer(
+            write_buffer=write_buffer,
+            writer=writer,
+        )
+
+        writer.close()
+
+        return self.output_path
+
+
+async def main() -> None:
+    jokes_path = DATA_DIR / config.jokes.data_filename
+    if not jokes_path.exists():
+        jokes_path = build_jokes_dataset()
+
+    embeddings_path = DATA_DIR / config.embeddings.data_filename
+    if not embeddings_path.exists():
+        embeddings_path = build_embeddings_dataset().data_path
+
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:30]")
+    embeddings = load_dataset("parquet", data_files=str(embeddings_path), split="train")
+
+    pipeline = KeywordsPipeline()
+    output_path = await pipeline.run(jokes, embeddings, resume=False)
+    print(
+        {
+            "jokes_path": str(jokes_path),
+            "keywords_path": str(output_path),
+        }
+    )
+
+    keywords = load_dataset("parquet", data_files=str(output_path), split="train[:30]")
+    print(keywords)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

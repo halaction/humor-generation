@@ -22,6 +22,7 @@ class KeywordsConfig(BaseModel):
     model: str
     dimensions: int = Field(gt=0)
     batch_size: int = Field(default=128, gt=0)
+    shard_size: int = Field(gt=0)
     max_parallel_requests: int = Field(gt=0)
     timeout: int = Field(default=60, gt=0)
     max_retries: int = Field(default=5, gt=0)

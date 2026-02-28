@@ -6,12 +6,15 @@ keywords:
   hf_config_name: "keywords"
   data_filename: "keywords.parquet"
   ngram_min: 1
-  ngram_max: 5
+  ngram_max: 2
   top_n: 5
   mmr_diversity: 0.7
   stopwords: false
   max_candidates: 64
+  model: "qwen/qwen3-embedding-8b"
+  dimensions: 1024
   batch_size: 64
+  shard_size: 10000
   max_parallel_requests: 5
   timeout: 60
   max_retries: 5
@@ -21,8 +24,8 @@ embeddings:
   data_filename: "embeddings.parquet"
   model: "qwen/qwen3-embedding-8b"
   dimensions: 1024
-  batch_size: 16
-  max_parallel_requests: 1
+  batch_size: 64
   shard_size: 10000
+  max_parallel_requests: 1
   timeout: 60
   max_retries: 5
