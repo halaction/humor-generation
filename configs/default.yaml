@@ -2,6 +2,17 @@ jokes:
   hf_config_name: "jokes"
   data_filename: "jokes.parquet"
 
+embeddings:
+  hf_config_name: "embeddings"
+  data_filename: "embeddings.parquet"
+  model: "qwen/qwen3-embedding-8b"
+  dimensions: 1024
+  batch_size: 64
+  shard_size: 10000
+  max_parallel_requests: 5
+  timeout: 60
+  max_retries: 5
+
 keywords:
   hf_config_name: "keywords"
   data_filename: "keywords.parquet"
@@ -19,13 +30,23 @@ keywords:
   timeout: 60
   max_retries: 5
 
-embeddings:
-  hf_config_name: "embeddings"
-  data_filename: "embeddings.parquet"
+references:
+  hf_config_name: "references"
+  data_filename: "references.parquet"
   model: "qwen/qwen3-embedding-8b"
   dimensions: 1024
+  top_k: 5
+  min_similarity: 0.0
   batch_size: 64
   shard_size: 10000
-  max_parallel_requests: 1
+  max_parallel_requests: 5
   timeout: 60
   max_retries: 5
+  faiss_nlist: 4096
+  faiss_nprobe: 32
+  faiss_train_size: 200000
+  faiss_add_batch_size: 10000
+  index_dirname: "references-index"
+  query_instruction: "Given a prompt asking for a joke, retrieve jokes that would answer the prompt."
+  exclude_self: true
+  oversample: 10

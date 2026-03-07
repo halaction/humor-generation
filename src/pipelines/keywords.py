@@ -259,7 +259,7 @@ async def main() -> None:
     if not embeddings_dir.exists():
         embeddings_dir = build_embeddings_dataset()
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:1000]")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:10000]")
     embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split="train")
 
     pipeline = KeywordsPipeline()
@@ -271,8 +271,8 @@ async def main() -> None:
         }
     )
 
-    keywords = load_dataset("parquet", data_dir=str(output_dir), split="train[:]")
-    print(keywords[:])
+    # keywords = load_dataset("parquet", data_dir=str(output_dir), split="train[:]")
+    # print(keywords[:])
 
 
 if __name__ == "__main__":

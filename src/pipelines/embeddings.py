@@ -139,7 +139,7 @@ async def main() -> None:
     if not jokes_path.exists():
         jokes_path = build_jokes_dataset()
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:1000]")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:10000]")
     pipeline = EmbeddingsPipeline()
     output_dir = await pipeline.run(jokes, resume=True)
     print(
@@ -149,8 +149,8 @@ async def main() -> None:
         }
     )
 
-    embeddings = load_dataset("parquet", data_dir=str(output_dir), split="train[:]")
-    print(embeddings[0])
+    # embeddings = load_dataset("parquet", data_dir=str(output_dir), split="train[:]")
+    # print(embeddings[0])
 
 
 if __name__ == "__main__":

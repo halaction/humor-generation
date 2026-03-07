@@ -31,3 +31,15 @@ class KeywordsOutputs(BaseModel):
     id: str
     keywords: list[str]
     scores: list[float]
+
+
+class ReferencesInputs(BaseModel):
+    id: str
+    keywords: list[str]
+
+
+class ReferencesOutputs(BaseModel):
+    id: str
+    prompt: str
+    references: list[str]
+    scores: list[float]
