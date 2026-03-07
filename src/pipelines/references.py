@@ -3,6 +3,7 @@ import json
 import math
 from collections import defaultdict
 from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 from typing import Any, cast
 
@@ -49,6 +50,9 @@ class ReferencesPipeline(BasePipeline):
         client: AsyncOpenAI | None = None,
     ) -> None:
         self.config = pipeline_config or config.references
+        if self.config.min_keywords > self.config.max_keywords:
+            msg = "`min_keywords` must be less than or equal to `max_keywords`."
+            raise ValueError(msg)
         self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
@@ -85,6 +89,21 @@ class ReferencesPipeline(BasePipeline):
     def _render_prompt(self, keywords: list[str]) -> str:
         return self.prompt_template.render(keywords=keywords).strip()
 
+    def _build_keyword_groups(self, keywords: list[str]) -> list[list[str]]:
+        cleaned_keywords = list(dict.fromkeys(keyword.strip() for keyword in keywords if keyword.strip()))
+        if not cleaned_keywords:
+            return []
+
+        max_keywords = min(self.config.max_keywords, len(cleaned_keywords))
+        min_keywords = min(self.config.min_keywords, max_keywords)
+
+        groups: list[list[str]] = []
+        for keyword_count in range(min_keywords, max_keywords + 1):
+            for group in combinations(cleaned_keywords, keyword_count):
+                groups.append(list(group))
+
+        return groups
+
     def _format_query(self, prompt: str) -> str:
         return f"Instruct: {self.config.query_instruction}\nQuery: {prompt}"
 
@@ -114,7 +133,7 @@ class ReferencesPipeline(BasePipeline):
         return pa.Table.from_pydict(outputs, schema=self.schema)
 
     def _check_buffer_size(self, write_buffer: list[_ReferencesBatchOutputs]) -> bool:
-        return len(write_buffer) * self.config.batch_size >= self.config.shard_size
+        return sum(len(batch.id) for batch in write_buffer) >= self.config.shard_size
 
     def _count_parquet_rows(self, path: Path) -> int:
         return pq.read_metadata(path).num_rows
@@ -322,15 +341,23 @@ class ReferencesPipeline(BasePipeline):
             row_ids = cast("list[str]", batch["id"])
             keyword_lists = cast("list[list[str]]", batch["keywords"])
 
-            prompts = [self._render_prompt(keywords) for keywords in keyword_lists]
-            references_by_row: list[list[str]] = [[] for _ in row_ids]
-            scores_by_row: list[list[float]] = [[] for _ in row_ids]
+            output_ids: list[str] = []
+            output_prompts: list[str] = []
+            output_references: list[list[str]] = []
+            output_scores: list[list[float]] = []
 
-            active_indices: list[int] = []
+            active_row_ids: list[str] = []
             active_prompts: list[str] = []
-            for index_value, prompt in enumerate(prompts):
-                if prompt:
-                    active_indices.append(index_value)
+
+            for row_id, keywords in zip(row_ids, keyword_lists, strict=True):
+                if row_id not in jokes_by_id:
+                    msg = f"Missing joke text for id={row_id}"
+                    raise RuntimeError(msg)
+                keyword_groups = self._build_keyword_groups(keywords)
+                prompts = [self._render_prompt(group) for group in keyword_groups]
+
+                for prompt in prompts:
+                    active_row_ids.append(row_id)
                     active_prompts.append(prompt)
 
             if active_prompts:
@@ -338,22 +365,33 @@ class ReferencesPipeline(BasePipeline):
                 query_vectors = np.asarray(query_embeddings, dtype=np.float32)
                 self._normalize_vectors(query_vectors)
 
-                for local_index, query_vector in enumerate(query_vectors):
-                    row_index = active_indices[local_index]
+                for query_index, query_vector in enumerate(query_vectors):
+                    row_id = active_row_ids[query_index]
                     candidate_ids, reference_scores = self._search_single(
                         query_vector=query_vector,
-                        source_id=row_ids[row_index],
+                        source_id=row_id,
                         index=index,
                         ids=ids,
                     )
-                    references_by_row[row_index] = [jokes_by_id[candidate_id] for candidate_id in candidate_ids]
-                    scores_by_row[row_index] = reference_scores
+
+                    references = [jokes_by_id[row_id]]
+                    scores = [1.0]
+                    for candidate_id, score in zip(candidate_ids, reference_scores, strict=True):
+                        if candidate_id not in jokes_by_id:
+                            continue
+                        references.append(jokes_by_id[candidate_id])
+                        scores.append(float(score))
+
+                    output_ids.append(row_id)
+                    output_prompts.append(active_prompts[query_index])
+                    output_references.append(references)
+                    output_scores.append(scores)
 
             return _ReferencesBatchOutputs(
-                id=row_ids,
-                prompt=prompts,
-                references=references_by_row,
-                scores=scores_by_row,
+                id=output_ids,
+                prompt=output_prompts,
+                references=output_references,
+                scores=output_scores,
             )
 
     def _build_jokes_lookup(self, jokes: Dataset) -> dict[str, str]:
@@ -447,7 +485,12 @@ async def main() -> None:
     keywords = load_dataset("parquet", data_dir=str(keywords_dir), split="train[:1000]")
 
     pipeline = ReferencesPipeline()
-    output_dir = await pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=True)
+    output_dir = await pipeline.run(
+        keywords=keywords,
+        embeddings=embeddings,
+        jokes=jokes,
+        resume=False,
+    )
     print(
         {
             "jokes_path": str(jokes_path),

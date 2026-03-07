@@ -35,6 +35,8 @@ references:
   data_filename: "references.parquet"
   model: "qwen/qwen3-embedding-8b"
   dimensions: 1024
+  min_keywords: 1
+  max_keywords: 2
   top_k: 5
   min_similarity: 0.0
   batch_size: 64

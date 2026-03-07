@@ -172,7 +172,11 @@ def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Pat
     )
 
     query_mapping = {
+        _render_prompt(["cat"]): [1.0, 0.0, 0.0],
+        _render_prompt(["bar"]): [1.0, 0.0, 0.0],
         _render_prompt(["cat", "bar"]): [1.0, 0.0, 0.0],
+        _render_prompt(["dog"]): [0.0, 1.0, 0.0],
+        _render_prompt(["park"]): [0.8, 0.2, 0.0],
         _render_prompt(["dog", "park"]): [0.0, 1.0, 0.0],
         _render_prompt(["cat", "park"]): [0.8, 0.2, 0.0],
     }
@@ -204,18 +208,23 @@ def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Pat
     asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=False))
 
     rows = _load_output_rows(output_dir=output_dir)
-    by_id = {row["id"]: row for row in rows}
+    by_id_and_prompt = {(row["id"], row["prompt"]): row for row in rows}
 
-    assert len(rows) == 3
-    assert by_id["0"]["references"] == ["cat park joke"]
-    assert by_id["1"]["references"] == ["cat park joke"]
-    assert by_id["2"]["references"] == ["cat joke"]
-    assert by_id["0"]["prompt"] == _render_prompt(["cat", "bar"])
-    assert by_id["1"]["prompt"] == _render_prompt(["dog", "park"])
-    assert by_id["2"]["prompt"] == _render_prompt(["cat", "park"])
-    assert by_id["0"]["scores"][0] > 0.0
-    assert by_id["1"]["scores"][0] > 0.0
-    assert by_id["2"]["scores"][0] > 0.0
+    assert len(rows) == 9
+    assert by_id_and_prompt[("0", _render_prompt(["cat"]))]["references"] == ["cat joke", "cat park joke"]
+    assert by_id_and_prompt[("0", _render_prompt(["bar"]))]["references"] == ["cat joke", "cat park joke"]
+    assert by_id_and_prompt[("0", _render_prompt(["cat", "bar"]))]["references"] == ["cat joke", "cat park joke"]
+    assert by_id_and_prompt[("1", _render_prompt(["dog"]))]["references"] == ["dog joke", "cat park joke"]
+    assert by_id_and_prompt[("1", _render_prompt(["park"]))]["references"] == ["dog joke", "cat park joke"]
+    assert by_id_and_prompt[("1", _render_prompt(["dog", "park"]))]["references"] == ["dog joke", "cat park joke"]
+    assert by_id_and_prompt[("2", _render_prompt(["cat"]))]["references"] == ["cat park joke", "cat joke"]
+    assert by_id_and_prompt[("2", _render_prompt(["park"]))]["references"] == ["cat park joke", "cat joke"]
+    assert by_id_and_prompt[("2", _render_prompt(["cat", "park"]))]["references"] == ["cat park joke", "cat joke"]
+
+    for row in rows:
+        assert len(row["scores"]) == 2
+        assert row["scores"][0] == 1.0
+        assert row["scores"][1] > 0.0
     assert client.embeddings.calls == 2
 
 
@@ -281,5 +290,9 @@ def test_references_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
     rows = _load_output_rows(output_dir=output_dir)
 
     assert len(rows) == 2
+    assert rows[0]["prompt"] == _render_prompt(["first"])
+    assert rows[1]["prompt"] == _render_prompt(["second"])
+    assert rows[0]["scores"][0] == 1.0
+    assert rows[1]["scores"][0] == 1.0
     assert first_call_count == 2
     assert client.embeddings.calls == first_call_count

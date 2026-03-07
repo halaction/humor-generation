@@ -45,6 +45,8 @@ class ReferencesConfig(BaseModel):
     data_filename: str = "references.parquet"
     model: str
     dimensions: int = Field(gt=0)
+    min_keywords: int = Field(default=1, ge=1)
+    max_keywords: int = Field(default=2, ge=1)
     top_k: int = Field(default=20, gt=0)
     min_similarity: float = 0.0
     batch_size: int = Field(default=64, gt=0)
