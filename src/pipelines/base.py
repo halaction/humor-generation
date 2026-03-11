@@ -37,14 +37,13 @@ class BasePipeline(ABC, Generic[P, T]):
 
         return max(indices) + 1 if indices else 0
 
-    def _get_seen_ids(self) -> set[int]:
+    def _get_seen_ids(self) -> set[str]:
         dataset = ds.dataset(self.output_dir, format="parquet")
         if not dataset.files:
             return set()
 
         array = dataset.to_table(columns=["id"]).column("id").to_numpy()
         seen_ids = np.unique(array).tolist()
-
         return set(seen_ids)
 
     def _get_table(self, write_buffer: list[T]) -> pa.Table:
@@ -75,13 +74,15 @@ class BasePipeline(ABC, Generic[P, T]):
 
     async def _wait_one(
         self,
-        pending_tasks: set[asyncio.Task[T]],
+        pending_tasks: set[asyncio.Task[T | None]],
         write_buffer: list[T],
     ) -> None:
         done, _ = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             pending_tasks.remove(task)
             outputs = task.result()
+            if outputs is None:
+                continue
             write_buffer.append(outputs)
             if self._check_buffer_size(write_buffer):
                 self._flush_buffer(write_buffer)

@@ -31,7 +31,7 @@ def build_keywords_dataset() -> Path:
     if not embeddings_dir.exists():
         embeddings_dir = build_embeddings_dataset()
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:50]")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train")
     embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split="train")
 
     pipeline = KeywordsPipeline()

@@ -21,6 +21,7 @@ from src.models import KeywordsInputs, KeywordsOutputs
 from src.paths import DATA_DIR
 from src.pipelines.base import BasePipeline
 from src.settings import settings
+from src.templates import environment
 
 if TYPE_CHECKING:
     import polars as pl
@@ -96,6 +97,7 @@ class KeywordsPipeline(BasePipeline):
             timeout=self.config.timeout,
         )
         self.next_part_index = 0
+        self.query_template = environment.get_template("keyword_query.j2")
 
         self.schema = pa.schema(
             [
@@ -124,11 +126,12 @@ class KeywordsPipeline(BasePipeline):
         return [candidate for candidate, _ in candidate_counts.most_common(self.config.max_candidates) if candidate]
 
     async def _embed_batch(self, batch: list[str]) -> list[list[float]]:
+        queries = [self.query_template.render(keyword=text).strip() for text in batch]
         for attempt in range(1, self.config.max_retries + 1):
             try:
                 response = await self.client.embeddings.create(
                     model=self.config.model,
-                    input=batch,
+                    input=queries,
                     dimensions=self.config.dimensions,
                 )
                 embeddings = [item.embedding for item in response.data]
@@ -152,11 +155,11 @@ class KeywordsPipeline(BasePipeline):
         self,
         inputs: KeywordsInputs,
         semaphore: asyncio.Semaphore,
-    ) -> KeywordsOutputs:
+    ) -> KeywordsOutputs | None:
         async with semaphore:
             candidates = self._extract_candidates(inputs.text)
             if not candidates:
-                return KeywordsOutputs(id=inputs.id, keywords=[], scores=[])
+                return None
 
             candidate_embeddings = await self._embed_texts(candidates)
 
@@ -180,6 +183,8 @@ class KeywordsPipeline(BasePipeline):
                 keywords.append(candidates[index])
                 scores.append(relevance_scores[index])
 
+            if not keywords:
+                return None
             return KeywordsOutputs(id=inputs.id, keywords=keywords, scores=scores)
 
     def _get_table(self, write_buffer: list[KeywordsOutputs]) -> pa.Table:
@@ -206,13 +211,13 @@ class KeywordsPipeline(BasePipeline):
         if resume:
             seen_ids = self._get_seen_ids()
             dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
-        elif self.next_part_index == 0:
-            for file in self.output_dir.iterdir():
+        elif self.next_part_index > 0:
+            for file in self.output_dir.glob("part-*.parquet"):
                 file.unlink()
 
         write_buffer: list[KeywordsOutputs] = []
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        pending_tasks: set[asyncio.Task[KeywordsOutputs]] = set()
+        pending_tasks: set[asyncio.Task[KeywordsOutputs | None]] = set()
 
         for item in tqdm(dataset):
             item = cast("dict[str, Any]", item)

@@ -39,7 +39,8 @@ references:
   max_keywords: 2
   top_k: 5
   min_similarity: 0.0
-  batch_size: 64
+  input_batch_size: 64
+  output_batch_size: 64
   shard_size: 10000
   max_parallel_requests: 5
   timeout: 60
@@ -47,8 +48,6 @@ references:
   faiss_nlist: 4096
   faiss_nprobe: 32
   faiss_train_size: 200000
-  faiss_add_batch_size: 10000
-  index_dirname: "references-index"
-  query_instruction: "Given a prompt asking for a joke, retrieve jokes that would answer the prompt."
+  faiss_batch_size: 10000
   exclude_self: true
   oversample: 10

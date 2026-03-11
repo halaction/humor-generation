@@ -49,7 +49,8 @@ class ReferencesConfig(BaseModel):
     max_keywords: int = Field(default=2, ge=1)
     top_k: int = Field(default=20, gt=0)
     min_similarity: float = 0.0
-    batch_size: int = Field(default=64, gt=0)
+    input_batch_size: int = Field(default=64, gt=0)
+    output_batch_size: int = Field(default=64, gt=0)
     shard_size: int = Field(default=10000, gt=0)
     max_parallel_requests: int = Field(default=5, gt=0)
     timeout: int = Field(default=60, gt=0)
@@ -57,9 +58,7 @@ class ReferencesConfig(BaseModel):
     faiss_nlist: int = Field(default=4096, gt=0)
     faiss_nprobe: int = Field(default=32, gt=0)
     faiss_train_size: int = Field(default=200000, gt=0)
-    faiss_add_batch_size: int = Field(default=10000, gt=0)
-    index_dirname: str = "references-index"
-    query_instruction: str = "Given a prompt asking for a joke, retrieve jokes that would answer the prompt."
+    faiss_batch_size: int = Field(default=10000, gt=0)
     exclude_self: bool = True
     oversample: int = Field(default=10, ge=0)
 

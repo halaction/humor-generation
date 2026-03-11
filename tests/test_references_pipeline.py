@@ -29,6 +29,7 @@ class _MockEmbeddingsAPI:
     def __init__(self, mapping: dict[str, list[float]]) -> None:
         self.mapping = mapping
         self.calls = 0
+        self.batch_sizes: list[int] = []
 
     async def create(
         self,
@@ -39,6 +40,7 @@ class _MockEmbeddingsAPI:
     ) -> _MockEmbeddingResponse:
         del model
         self.calls += 1
+        self.batch_sizes.append(len(input))
         embeddings: list[list[float]] = []
         for query in input:
             assert query.startswith("Instruct: ")
@@ -146,7 +148,6 @@ def _load_output_rows(output_dir: Path) -> list[dict[str, object]]:
 
 def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Path) -> None:
     references_module.faiss = _FakeFaiss
-    references_module._FAISS_IMPORT_ERROR = None
 
     embeddings = Dataset.from_dict(
         {
@@ -185,7 +186,8 @@ def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Pat
         model="mock-model",
         dimensions=3,
         top_k=1,
-        batch_size=2,
+        input_batch_size=2,
+        output_batch_size=2,
         shard_size=2,
         max_parallel_requests=2,
         timeout=10,
@@ -193,7 +195,7 @@ def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Pat
         faiss_nlist=1,
         faiss_nprobe=1,
         faiss_train_size=3,
-        faiss_add_batch_size=2,
+        faiss_batch_size=2,
         index_dirname=str(tmp_path / "index"),
         oversample=2,
         min_similarity=0.0,
@@ -225,12 +227,12 @@ def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Pat
         assert len(row["scores"]) == 2
         assert row["scores"][0] == 1.0
         assert row["scores"][1] > 0.0
-    assert client.embeddings.calls == 2
+    assert client.embeddings.calls == 5
+    assert max(client.embeddings.batch_sizes) <= 2
 
 
 def test_references_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
     references_module.faiss = _FakeFaiss
-    references_module._FAISS_IMPORT_ERROR = None
 
     embeddings = Dataset.from_dict(
         {
@@ -263,7 +265,8 @@ def test_references_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
         model="mock-model",
         dimensions=2,
         top_k=1,
-        batch_size=1,
+        input_batch_size=1,
+        output_batch_size=1,
         shard_size=1,
         max_parallel_requests=1,
         timeout=10,
@@ -271,7 +274,7 @@ def test_references_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
         faiss_nlist=1,
         faiss_nprobe=1,
         faiss_train_size=2,
-        faiss_add_batch_size=2,
+        faiss_batch_size=2,
         index_dirname=str(tmp_path / "index"),
         oversample=1,
         min_similarity=-1.0,

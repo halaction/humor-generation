@@ -11,11 +11,6 @@ class EmbeddingsInputs(BaseModel):
     text: list[str]
 
 
-class EmbeddingsItem(BaseModel):
-    id: str
-    embedding: list[float]
-
-
 class EmbeddingsOutputs(BaseModel):
     id: list[str]
     embedding: list[list[float]]
@@ -34,12 +29,13 @@ class KeywordsOutputs(BaseModel):
 
 
 class ReferencesInputs(BaseModel):
-    id: str
-    keywords: list[str]
+    id: list[str]
+    joke: list[str]
+    keywords: list[list[str]]
 
 
 class ReferencesOutputs(BaseModel):
-    id: str
-    prompt: str
-    references: list[str]
-    scores: list[float]
+    id: list[str]
+    prompt: list[str]
+    references: list[list[str]]
+    scores: list[list[float]]

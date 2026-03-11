@@ -47,18 +47,26 @@ class EmbeddingsPipeline(BasePipeline):
         self,
         batch: EmbeddingsInputs,
         semaphore: asyncio.Semaphore,
-    ) -> EmbeddingsOutputs:
+    ) -> EmbeddingsOutputs | None:
         async with semaphore:
+            filtered_pairs = [
+                (item_id, text.strip()) for item_id, text in zip(batch.id, batch.text, strict=True) if text.strip()
+            ]
+            if not filtered_pairs:
+                return None
+            filtered_ids = [item_id for item_id, _ in filtered_pairs]
+            filtered_texts = [text for _, text in filtered_pairs]
+
             for attempt in range(1, self.config.max_retries + 1):
                 try:
                     response = await self.client.embeddings.create(
                         model=self.config.model,
-                        input=batch.text,
+                        input=filtered_texts,
                         dimensions=self.config.dimensions,
                     )
 
                     outputs = EmbeddingsOutputs(
-                        id=batch.id,
+                        id=filtered_ids,
                         embedding=[item.embedding for item in response.data],
                     )
                 except Exception:
@@ -80,7 +88,7 @@ class EmbeddingsPipeline(BasePipeline):
         return pa.Table.from_pydict(outputs, schema=self.schema)
 
     def _check_buffer_size(self, write_buffer: list[EmbeddingsOutputs]) -> bool:
-        return len(write_buffer) * self.config.batch_size >= self.config.shard_size
+        return sum(len(batch.id) for batch in write_buffer) >= self.config.shard_size
 
     async def run(
         self,
@@ -95,15 +103,15 @@ class EmbeddingsPipeline(BasePipeline):
         if resume:
             seen_ids = self._get_seen_ids()
             dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
-        elif self.next_part_index == 0:
-            for file in self.output_dir.iterdir():
+        elif self.next_part_index > 0:
+            for file in self.output_dir.glob("part-*.parquet"):
                 file.unlink()
 
         dataset = dataset.batch(self.config.batch_size)
 
         write_buffer: list[EmbeddingsOutputs] = []
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        pending_tasks: set[asyncio.Task[EmbeddingsOutputs]] = set()
+        pending_tasks: set[asyncio.Task[EmbeddingsOutputs | None]] = set()
 
         for batch in tqdm(dataset):
             batch = cast("dict[str, list[Any]]", batch)

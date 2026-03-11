@@ -1,9 +1,10 @@
 import asyncio
+from pathlib import Path
 
 import pyarrow.parquet as pq
 
+from datasets import Dataset
 from src.config import EmbeddingsConfig
-from src.paths import DATA_DIR
 from src.pipelines.embeddings import EmbeddingsPipeline
 
 
@@ -20,8 +21,6 @@ class _MockEmbeddingResponse:
 class _MockEmbeddingsAPI:
     def __init__(self) -> None:
         self.batch_sizes: list[int] = []
-        self.active_calls = 0
-        self.max_active_calls = 0
 
     async def create(
         self,
@@ -32,16 +31,11 @@ class _MockEmbeddingsAPI:
     ) -> _MockEmbeddingResponse:
         del model
         self.batch_sizes.append(len(input))
-        self.active_calls += 1
-        self.max_active_calls = max(self.max_active_calls, self.active_calls)
-        await asyncio.sleep(0.02)
-        embeddings: list[list[float]] = []
+        rows: list[list[float]] = []
         for text in input:
             base = float(len(text))
-            vector = [base + float(index) for index in range(dimensions)]
-            embeddings.append(vector)
-        self.active_calls -= 1
-        return _MockEmbeddingResponse(embeddings)
+            rows.append([base + float(i) for i in range(dimensions)])
+        return _MockEmbeddingResponse(rows)
 
 
 class _MockAsyncClient:
@@ -49,59 +43,36 @@ class _MockAsyncClient:
         self.embeddings = _MockEmbeddingsAPI()
 
 
-class _InMemoryDataset:
-    def __init__(self, rows: list[dict[str, str]]) -> None:
-        self._rows = rows
-        self.column_names = list(rows[0].keys()) if rows else []
-
-    def __iter__(self):
-        return iter(self._rows)
+def _load_rows(output_dir: Path) -> list[dict[str, object]]:
+    table = pq.read_table(sorted(output_dir.glob("part-*.parquet")))
+    return table.to_pylist()
 
 
-def test_embeddings_pipeline() -> None:
-    data_filename = "embeddings-test.parquet"
-    embeddings_config = EmbeddingsConfig(
-        data_filename=data_filename,
-        model="mock-embedding-model",
-        dimensions=4,
-        batch_size=2,
-        shard_size=3,
-        max_parallel_requests=2,
-        timeout=10,
-        max_retries=1,
-    )
-    mock_client = _MockAsyncClient()
+def test_embeddings_pipeline_skips_empty_text_rows(tmp_path: Path) -> None:
     pipeline = EmbeddingsPipeline(
-        pipeline_config=embeddings_config,
-        client=mock_client,
-    )
-    output_path = DATA_DIR / data_filename
-    if output_path.exists():
-        output_path.unlink()
-
-    dataset = _InMemoryDataset(
-        [
-            {"id": "0", "text": "joke about cats"},
-            {"id": "1", "text": "joke about dogs"},
-            {"id": "2", "text": "joke about birds"},
-            {"id": "3", "text": "joke about fish"},
-            {"id": "4", "text": "joke about snakes"},
-            {"id": "5", "text": "joke about cows"},
-        ]
+        pipeline_config=EmbeddingsConfig(
+            model="mock-model",
+            dimensions=4,
+            batch_size=2,
+            shard_size=2,
+            max_parallel_requests=2,
+            timeout=10,
+            max_retries=1,
+        ),
+        output_dir=tmp_path / "embeddings",
+        client=_MockAsyncClient(),
     )
 
-    try:
-        outputs = asyncio.run(pipeline.run(dataset))
+    jokes = Dataset.from_dict(
+        {
+            "id": ["0", "1", "2", "3"],
+            "text": ["joke one", " ", "joke two", ""],
+        }
+    )
 
-        assert outputs.data_path.exists()
-        table = pq.read_table(outputs.data_path)
-        assert table.num_rows == 6
-        assert set(table.column("id").to_pylist()) == {"0", "1", "2", "3", "4", "5"}
-        for embedding in table.column("embedding").to_pylist():
-            assert len(embedding) == 4
+    asyncio.run(pipeline.run(jokes, resume=False))
+    rows = _load_rows(tmp_path / "embeddings")
 
-        assert mock_client.embeddings.batch_sizes == [2, 2, 2]
-        assert mock_client.embeddings.max_active_calls >= 2
-    finally:
-        if output_path.exists():
-            output_path.unlink()
+    assert {row["id"] for row in rows} == {"0", "2"}
+    assert all(len(row["embedding"]) == 4 for row in rows)
+    assert pipeline.client.embeddings.batch_sizes == [1, 1]

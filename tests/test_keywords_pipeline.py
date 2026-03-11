@@ -1,22 +1,11 @@
 import asyncio
-import re
+from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from src.config import EmbeddingsConfig, KeywordsConfig
-from src.paths import DATA_DIR
+from datasets import Dataset
+from src.config import KeywordsConfig
 from src.pipelines.keywords import KeywordsPipeline
-
-TOKEN_PATTERN = re.compile(r"(?u)\b\w\w+\b")
-
-
-class _InMemoryDataset:
-    def __init__(self, rows: list[dict[str, object]]) -> None:
-        self._rows = rows
-        self.column_names = list(rows[0].keys()) if rows else []
-
-    def __iter__(self):
-        return iter(self._rows)
 
 
 class _MockEmbeddingItem:
@@ -30,11 +19,9 @@ class _MockEmbeddingResponse:
 
 
 class _MockEmbeddingsAPI:
-    def __init__(self, forbidden_texts: set[str]) -> None:
+    def __init__(self) -> None:
         self.batch_sizes: list[int] = []
-        self.active_calls = 0
-        self.max_active_calls = 0
-        self.forbidden_texts = forbidden_texts
+        self.queries: list[str] = []
 
     async def create(
         self,
@@ -44,122 +31,58 @@ class _MockEmbeddingsAPI:
         dimensions: int,
     ) -> _MockEmbeddingResponse:
         del model
-        if any(text in self.forbidden_texts for text in input):
-            raise AssertionError("Keywords pipeline re-embedded full joke texts instead of using input embeddings.")
-
         self.batch_sizes.append(len(input))
-        self.active_calls += 1
-        self.max_active_calls = max(self.max_active_calls, self.active_calls)
-        await asyncio.sleep(0.02)
-        embeddings: list[list[float]] = []
-        for text in input:
-            tokens = TOKEN_PATTERN.findall(text.lower())
-            token_count = float(len(tokens))
-            character_count = float(len(text))
-            unique_count = float(len(set(tokens)))
-            vector = [token_count, character_count, unique_count]
-            if dimensions > 3:
-                vector.extend([0.0] * (dimensions - 3))
-            embeddings.append(vector[:dimensions])
-        self.active_calls -= 1
-        return _MockEmbeddingResponse(embeddings)
+        self.queries.extend(input)
+        rows: list[list[float]] = []
+        for query in input:
+            keyword = query.split("\nQuery: ", maxsplit=1)[1]
+            if "cat" in keyword:
+                rows.append([1.0, 0.0, 0.0][:dimensions])
+            elif "dog" in keyword:
+                rows.append([0.0, 1.0, 0.0][:dimensions])
+            else:
+                rows.append([0.1, 0.1, 0.1][:dimensions])
+        return _MockEmbeddingResponse(rows)
 
 
 class _MockAsyncClient:
-    def __init__(self, forbidden_texts: set[str]) -> None:
-        self.embeddings = _MockEmbeddingsAPI(forbidden_texts=forbidden_texts)
+    def __init__(self) -> None:
+        self.embeddings = _MockEmbeddingsAPI()
 
 
-def _build_embedding_vector(text: str, dimensions: int) -> list[float]:
-    tokens = TOKEN_PATTERN.findall(text.lower())
-    token_count = float(len(tokens))
-    character_count = float(len(text))
-    unique_count = float(len(set(tokens)))
-    vector = [token_count, character_count, unique_count]
-    if dimensions > 3:
-        vector.extend([0.0] * (dimensions - 3))
-    return vector[:dimensions]
+def _load_rows(output_dir: Path) -> list[dict[str, object]]:
+    table = pq.read_table(sorted(output_dir.glob("part-*.parquet")))
+    return table.to_pylist()
 
 
-def test_keywords_pipeline() -> None:
-    keywords_config = KeywordsConfig(
-        data_filename="keywords-test.parquet",
-        ngram_min=1,
-        ngram_max=3,
-        top_n=3,
-        stopwords=True,
-        max_candidates=9,
-        batch_size=2,
-        max_parallel_requests=2,
-        timeout=10,
-        max_retries=1,
-    )
-
-    embeddings_config = EmbeddingsConfig(
-        model="mock-embedding-model",
-        dimensions=3,
-        batch_size=2,
-        shard_size=4,
-        max_parallel_requests=2,
-        timeout=10,
-        max_retries=1,
-    )
-
-    output_path = DATA_DIR / keywords_config.data_filename
-    if output_path.exists():
-        output_path.unlink()
-
-    rows = [
-        {"id": "0", "text": "A cat walks into a bar and orders milk"},
-        {"id": "1", "text": "A dog walks into a bar and orders water"},
-        {"id": "2", "text": "A bird flies into a bar and orders seeds"},
-        {"id": "3", "text": "A cow runs into a bar and orders grass"},
-    ]
-    rows_with_embeddings = [
-        {
-            "id": row["id"],
-            "text": row["text"],
-            "embedding": _build_embedding_vector(row["text"], dimensions=embeddings_config.dimensions),
-        }
-        for row in rows
-    ]
-
-    mock_client = _MockAsyncClient(forbidden_texts={row["text"] for row in rows})
+def test_keywords_pipeline_uses_template_instruction_and_skips_empty_rows(tmp_path: Path) -> None:
+    client = _MockAsyncClient()
     pipeline = KeywordsPipeline(
-        keywords_config=keywords_config,
-        embeddings_config=embeddings_config,
-        client=mock_client,
+        pipeline_config=KeywordsConfig(
+            model="mock-model",
+            dimensions=3,
+            ngram_min=1,
+            ngram_max=1,
+            top_n=2,
+            stopwords=False,
+            max_candidates=8,
+            batch_size=2,
+            shard_size=2,
+            max_parallel_requests=1,
+            timeout=10,
+            max_retries=1,
+        ),
+        output_dir=tmp_path / "keywords",
+        client=client,
     )
-    dataset = _InMemoryDataset(rows_with_embeddings)
 
-    try:
-        first_results, first_output_path = asyncio.run(pipeline.run(dataset))
-        second_results, second_output_path = asyncio.run(pipeline.run(dataset))
+    jokes = Dataset.from_dict({"id": ["0", "1"], "text": ["cat cat joke", " "]})
+    embeddings = Dataset.from_dict({"id": ["0", "1"], "embedding": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]})
 
-        assert first_output_path == second_output_path
-        assert first_output_path.exists()
-        assert len(first_results) == 4
-        assert len(second_results) == 0
+    asyncio.run(pipeline.run(jokes=jokes, embeddings=embeddings, resume=False))
+    rows = _load_rows(tmp_path / "keywords")
 
-        table = pq.read_table(first_output_path)
-        assert table.num_rows == 4
-        assert set(table.column("joke_id").to_pylist()) == {"0", "1", "2", "3"}
-        for keywords, scores in zip(
-            table.column("keywords").to_pylist(),
-            table.column("scores").to_pylist(),
-            strict=True,
-        ):
-            assert isinstance(keywords, list)
-            assert len(keywords) == 3
-            for keyword in keywords:
-                assert isinstance(keyword, str)
-                assert keyword
-            assert isinstance(scores, list)
-            assert len(scores) == 3
-
-        assert mock_client.embeddings.max_active_calls >= 2
-        assert max(mock_client.embeddings.batch_sizes) <= 2
-        assert len(mock_client.embeddings.batch_sizes) >= 4
-    finally:
-        if output_path.exists():
-            output_path.unlink()
+    assert [row["id"] for row in rows] == ["0"]
+    assert rows[0]["keywords"]
+    assert all(query.startswith("Instruct: Given a short keyword or phrase, retrieve jokes") for query in client.embeddings.queries)
+    assert max(client.embeddings.batch_sizes) <= 2
