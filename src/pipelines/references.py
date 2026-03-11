@@ -2,7 +2,6 @@ import asyncio
 import json
 import math
 from collections import defaultdict
-from dataclasses import dataclass
 from itertools import batched, combinations
 from pathlib import Path
 from typing import Any, cast
@@ -10,12 +9,10 @@ from typing import Any, cast
 import faiss
 import numpy as np
 import numpy.typing as npt
-import pyarrow as pa
-import pyarrow.parquet as pq
-from openai import AsyncOpenAI
-from pydantic import BaseModel
-from tqdm.auto import tqdm
 import polars as pl
+import pyarrow as pa
+from openai import AsyncOpenAI
+from tqdm.auto import tqdm
 
 from datasets import Dataset, load_dataset
 from src.config import ReferencesConfig, config
@@ -23,14 +20,15 @@ from src.datasets.embeddings import build_embeddings_dataset
 from src.datasets.jokes import build_jokes_dataset
 from src.datasets.keywords import build_keywords_dataset
 from src.logging import get_logger
+from src.models import ReferencesInputs, ReferencesOutputs
 from src.paths import DATA_DIR
 from src.pipelines.base import BasePipeline
 from src.settings import settings
 from src.templates import environment
-from src.models import ReferencesInputs, ReferencesOutputs
-
 
 logger = get_logger(__name__)
+
+_INDEX_ID_STORAGE = "faiss_add_with_ids_int64_v1"
 
 
 class ReferencesPipeline(BasePipeline):
@@ -54,7 +52,6 @@ class ReferencesPipeline(BasePipeline):
 
         self.index_dir = DATA_DIR / "index"
         self.index_path = self.index_dir / "index.faiss"
-        self.ids_path = self.index_dir / "ids.parquet"
         self.meta_path = self.index_dir / "meta.json"
 
         self.prompt_template = environment.get_template("reference_prompt.j2")
@@ -62,12 +59,21 @@ class ReferencesPipeline(BasePipeline):
 
         self.schema = pa.schema(
             [
-                pa.field("id", pa.string()),
+                pa.field("id", pa.int64()),
                 pa.field("prompt", pa.string()),
                 pa.field("references", pa.list_(pa.string())),
                 pa.field("scores", pa.list_(pa.float32())),
             ]
         )
+
+    @staticmethod
+    def _normalize_vectors(vectors: np.ndarray) -> None:
+        if vectors.size == 0:
+            return
+
+        norms = np.linalg.norm(vectors, axis=1)
+        valid_mask = norms > 0
+        vectors[valid_mask] = vectors[valid_mask] / norms[valid_mask, np.newaxis]
 
     def _get_table(self, write_buffer: list[ReferencesOutputs]) -> pa.Table:
         outputs = defaultdict(list)
@@ -79,12 +85,50 @@ class ReferencesPipeline(BasePipeline):
     def _check_buffer_size(self, write_buffer: list[ReferencesOutputs]) -> bool:
         return sum(len(batch.id) for batch in write_buffer) >= self.config.shard_size
 
-    def _count_parquet_rows(self, path: Path) -> int:
-        return pq.read_metadata(path).num_rows
+    def _build_keyword_groups(self, keywords: list[str]) -> list[list[str]]:
+        cleaned_keywords = []
+        for keyword in keywords:
+            cleaned_keyword = keyword.strip()
+            if cleaned_keyword:
+                cleaned_keywords.append(cleaned_keyword)
 
-    def _load_faiss_ids(self) -> list[str]:
-        table = pq.read_table(self.ids_path, columns=["id"])
-        return cast("list[str]", table.column("id").to_pylist())
+        cleaned_keywords = list(dict.fromkeys(cleaned_keywords))
+        if not cleaned_keywords:
+            return []
+
+        max_keywords = min(self.config.max_keywords, len(cleaned_keywords))
+        min_keywords = min(self.config.min_keywords, max_keywords)
+
+        groups: list[list[str]] = []
+        for keyword_count in range(min_keywords, max_keywords + 1):
+            for group in combinations(cleaned_keywords, keyword_count):
+                groups.append(list(group))
+
+        return groups
+
+    async def _embed_batch(self, prompts: list[str]) -> npt.NDArray[np.float32]:
+        if not prompts:
+            return np.empty((0, self.config.dimensions), dtype=np.float32)
+
+        embeddings: list[list[float]] = []
+        for prompt_batch in batched(prompts, self.config.output_batch_size, strict=False):
+            formatted_queries = [self.query_template.render(prompt=prompt).strip() for prompt in prompt_batch]
+            for attempt in range(1, self.config.max_retries + 1):
+                try:
+                    response = await self.client.embeddings.create(
+                        model=self.config.model,
+                        input=formatted_queries,
+                        dimensions=self.config.dimensions,
+                    )
+                    embeddings.extend([item.embedding for item in response.data])
+                except Exception:
+                    if attempt >= self.config.max_retries:
+                        raise
+                    await asyncio.sleep(2 ** (attempt - 1))
+                else:
+                    break
+
+        return np.asarray(embeddings, dtype=np.float32)
 
     def _sample_training_vectors(self, embeddings: Dataset, sample_size: int) -> np.ndarray:
         reservoir = np.empty((sample_size, self.config.dimensions), dtype=np.float32)
@@ -109,8 +153,8 @@ class ReferencesPipeline(BasePipeline):
 
         return reservoir[: min(sample_size, seen)]
 
-    def _load_faiss_index(self, expected_rows: int) -> tuple[faiss.IndexIVFFlat, list[str]] | None:
-        if not (self.index_path.exists() and self.ids_path.exists() and self.meta_path.exists()):
+    def _load_faiss_index(self, expected_rows: int) -> faiss.IndexIVFFlat | None:
+        if not (self.index_path.exists() and self.meta_path.exists()):
             return None
 
         metadata = json.loads(self.meta_path.read_text(encoding="utf-8"))
@@ -125,9 +169,7 @@ class ReferencesPipeline(BasePipeline):
             return None
         if metadata.get("faiss_nlist_effective") != effective_nlist:
             return None
-
-        ids_row_count = self._count_parquet_rows(self.ids_path)
-        if ids_row_count != expected_rows:
+        if metadata.get("id_storage") != _INDEX_ID_STORAGE:
             return None
 
         index = faiss.read_index(str(self.index_path))
@@ -137,22 +179,19 @@ class ReferencesPipeline(BasePipeline):
         if hasattr(index, "nprobe"):
             index.nprobe = min(self.config.faiss_nprobe, effective_nlist)
 
-        ids = self._load_faiss_ids()
-
         logger.info(
             "index.load.done",
             path=str(self.index_path),
             rows=expected_rows,
             nlist=effective_nlist,
         )
-        return index, ids
+        return index
 
-    def _build_faiss_index(self, embeddings: Dataset) -> tuple[faiss.IndexIVFFlat, list[str]]:
+    def _build_faiss_index(self, embeddings: Dataset) -> faiss.IndexIVFFlat:
         expected_rows = len(embeddings)
-
-        cache = self._load_faiss_index(expected_rows=expected_rows)
-        if cache is not None:
-            return cache
+        cached_index = self._load_faiss_index(expected_rows=expected_rows)
+        if cached_index is not None:
+            return cached_index
 
         self.index_dir.mkdir(parents=True, exist_ok=True)
         effective_nlist = min(self.config.faiss_nlist, max(1, expected_rows))
@@ -179,7 +218,7 @@ class ReferencesPipeline(BasePipeline):
                 raise RuntimeError(msg)
             index.train(train_vectors)
 
-        ids: list[str] = []
+        indexed_count = 0
         total_batches = math.ceil(expected_rows / self.config.faiss_batch_size) if expected_rows else 0
         for batch in tqdm(
             embeddings.iter(batch_size=self.config.faiss_batch_size),
@@ -187,28 +226,26 @@ class ReferencesPipeline(BasePipeline):
             desc="Building reference index",
         ):
             batch = cast("dict[str, list[Any]]", batch)
-            batch_ids = cast("list[str]", batch["id"])
+            batch_ids = np.asarray(batch["id"], dtype=np.int64)
             vectors = np.asarray(batch["embedding"], dtype=np.float32)
             if vectors.size == 0:
                 continue
+            if vectors.shape[0] != batch_ids.shape[0]:
+                msg = (
+                    "Embedding/id batch length mismatch while indexing. "
+                    f"ids={batch_ids.shape[0]}, vectors={vectors.shape[0]}"
+                )
+                raise RuntimeError(msg)
 
             self._normalize_vectors(vectors)
-            index.add(vectors)
-            ids.extend(batch_ids)
+            index.add_with_ids(vectors, batch_ids)
+            indexed_count += int(batch_ids.shape[0])
 
-        if len(ids) != expected_rows:
-            msg = f"Indexed id count mismatch. expected={expected_rows}, got={len(ids)}"
+        if indexed_count != expected_rows:
+            msg = f"Indexed row count mismatch. expected={expected_rows}, got={indexed_count}"
             raise RuntimeError(msg)
 
         faiss.write_index(index, str(self.index_path))
-        ids_table = pa.Table.from_pydict({"id": ids}, schema=pa.schema([pa.field("id", pa.string())]))
-        pq.write_table(
-            ids_table,
-            where=str(self.ids_path),
-            compression="zstd",
-            use_content_defined_chunking=True,
-            write_page_index=True,
-        )
         self.meta_path.write_text(
             json.dumps(
                 {
@@ -217,6 +254,7 @@ class ReferencesPipeline(BasePipeline):
                     "rows": expected_rows,
                     "faiss_nlist_config": self.config.faiss_nlist,
                     "faiss_nlist_effective": effective_nlist,
+                    "id_storage": _INDEX_ID_STORAGE,
                 },
                 indent=2,
             ),
@@ -232,199 +270,105 @@ class ReferencesPipeline(BasePipeline):
             rows=expected_rows,
             nlist=effective_nlist,
         )
-        return index, ids
-
-    # def _search_single(
-    #     self,
-    #     *,
-    #     query_vector: np.ndarray,
-    #     source_id: str,
-    #     faiss_index: faiss.IndexIVFFlat,
-    #     faiss_ids: list[str],
-    # ) -> tuple[list[str], list[float]]:
-    #     if int(faiss_index.ntotal) == 0:
-    #         return [], []
-
-    #     search_k = self.config.top_k + self.config.oversample
-    #     if self.config.exclude_self:
-    #         search_k += 1
-    #     search_k = min(search_k, int(faiss_index.ntotal))
-
-    #     scores_array, indices_array = faiss_index.search(query_vector[np.newaxis, :], search_k)
-    #     scores_row = cast("np.ndarray", scores_array[0])
-    #     indices_row = cast("np.ndarray", indices_array[0])
-
-    #     reference_text_ids: list[str] = []
-    #     reference_scores: list[float] = []
-
-    #     for score, index_value in zip(scores_row.tolist(), indices_row.tolist(), strict=True):
-    #         if index_value < 0:
-    #             continue
-
-    #         candidate_id = faiss_ids[index_value]
-    #         if self.config.exclude_self and candidate_id == source_id:
-    #             continue
-    #         if score < self.config.min_similarity:
-    #             continue
-
-    #         reference_text_ids.append(candidate_id)
-    #         reference_scores.append(float(score))
-    #         if len(reference_text_ids) >= self.config.top_k:
-    #             break
-
-    #     return reference_text_ids, reference_scores
-
-    @staticmethod
-    def _normalize_vectors(vectors: np.ndarray) -> None:
-        if vectors.size == 0:
-            return
-
-        norms = np.linalg.norm(vectors, axis=1)
-        valid_mask = norms > 0
-        vectors[valid_mask] = vectors[valid_mask] / norms[valid_mask, np.newaxis]
-
-    def _build_keyword_groups(self, keywords: list[str]) -> list[list[str]]:
-        cleaned_keywords = []
-        for keyword in keywords:
-            cleaned_keyword = keyword.strip()
-            if cleaned_keyword:
-                cleaned_keywords.append(cleaned_keyword)
-
-        cleaned_keywords = list(dict.fromkeys(cleaned_keywords))
-        if not cleaned_keywords:
-            return []
-
-        max_keywords = min(self.config.max_keywords, len(cleaned_keywords))
-        min_keywords = min(self.config.min_keywords, max_keywords)
-
-        groups: list[list[str]] = []
-        for keyword_count in range(min_keywords, max_keywords + 1):
-            for group in combinations(cleaned_keywords, keyword_count):
-                groups.append(list(group))
-
-        return groups
-
-    async def _embed_batch(self, prompts: list[str]) -> npt.NDArray[np.float32]:
-        embeddings: list[list[float]] = []
-        for prompt_batch in batched(prompts, self.config.output_batch_size, strict=False):
-            formatted_queries = [self.query_template.render(prompt=prompt).strip() for prompt in prompt_batch]
-            for attempt in range(1, self.config.max_retries + 1):
-                try:
-                    response = await self.client.embeddings.create(
-                        model=self.config.model,
-                        input=formatted_queries,
-                        dimensions=self.config.dimensions,
-                    )
-                    embeddings.extend([item.embedding for item in response.data])
-                except Exception:
-                    if attempt >= self.config.max_retries:
-                        raise
-                    await asyncio.sleep(2 ** (attempt - 1))
-                else:
-                    break
-
-        return np.asarray(embeddings, dtype=np.float32)
+        return index
 
     def _search_batch(
         self,
-        embeddings: np.ndarray,
-        source_ids: list[str],
+        query_vectors: npt.NDArray[np.float32],
+        source_ids: npt.NDArray[np.int64],
         faiss_index: faiss.IndexIVFFlat,
-        faiss_ids: list[str],
-    ) -> tuple[list[list[str]], list[list[float]]]:
-
+    ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.float32], npt.NDArray[np.bool_]]:
         search_k = self.config.top_k + self.config.oversample
         if self.config.exclude_self:
             search_k += 1
         search_k = min(search_k, int(faiss_index.ntotal))
 
-        scores, indices = faiss_index.search(embeddings, search_k)  # type: ignore
+        candidate_scores, candidate_ids = faiss_index.search(query_vectors, search_k)  # type: ignore
+        candidate_scores = np.asarray(candidate_scores, dtype=np.float32)
+        candidate_ids = np.asarray(candidate_ids, dtype=np.int64)
 
-        faiss_ids_array = np.asarray(faiss_ids, dtype=object)
-
-        keep = indices >= 0
-        candidate_ids = faiss_ids_array[np.where(keep, indices, 0)]
-
-        keep &= scores >= self.config.min_similarity
-
+        keep_mask = candidate_ids >= 0
+        keep_mask &= candidate_scores >= self.config.min_similarity
         if self.config.exclude_self:
-            source_ids_array = np.asarray(source_ids, dtype=object)
-            source_ids_array = np.expand_dims(source_ids_array, axis=1)
+            keep_mask &= candidate_ids != np.expand_dims(source_ids, axis=1)
 
-            keep &= candidate_ids != source_ids_array
+        rank_mask = np.cumsum(keep_mask, axis=1, dtype=np.int32) <= self.config.top_k
+        keep_mask &= rank_mask
 
-        reference_ids: list[list[str]] = []
-        reference_scores: list[list[float]] = []
+        return candidate_ids, candidate_scores, keep_mask
 
-        kept_ids = candidate_ids[keep]
-
-        for row_ids, row_scores, row_keep in zip(candidate_ids, scores, keep, strict=True):
-            kept_ids = row_ids[row_keep][: self.config.top_k].tolist()
-            kept_scores = row_scores[row_keep][: self.config.top_k].astype(float).tolist()
-
-            reference_ids.append(kept_ids)
-            reference_scores.append(kept_scores)
-
-        return reference_ids, reference_scores
+    def _build_jokes_lookup(self, jokes: Dataset) -> dict[int, str]:
+        jokes_mapping: dict[int, str] = {}
+        for batch in tqdm(jokes.batch(self.config.faiss_batch_size)):
+            batch = cast("dict[str, list[Any]]", batch)
+            ids = cast("list[int]", batch["id"])
+            texts = cast("list[str]", batch["text"])
+            jokes_mapping.update(dict(zip(ids, texts, strict=True)))
+        return jokes_mapping
 
     async def _retrieve_references(
         self,
         inputs: ReferencesInputs,
         semaphore: asyncio.Semaphore,
         faiss_index: faiss.IndexIVFFlat,
-        faiss_ids: list[str],
-        jokes_mapping: dict[str, str],
+        jokes_mapping: dict[int, str],
     ) -> ReferencesOutputs | None:
         async with semaphore:
-            # row_ids = cast("list[str]", inputs.id)
-            # keyword_lists = cast("list[list[str]]", inputs["keywords"])
-
-            output_ids: list[str] = []
-            output_prompts: list[str] = []
-            output_references: list[list[str]] = []
-            output_scores: list[list[float]] = []
-
-            expanded_ids: list[str] = []
+            expanded_ids: list[int] = []
             expanded_prompts: list[str] = []
 
-            for id, keywords in zip(inputs.id, inputs.keywords, strict=True):
+            logger.debug("retrieve.expand")
+            for row_id, keywords in zip(inputs.id, inputs.keywords, strict=True):
                 keyword_groups = self._build_keyword_groups(keywords)
                 prompts = [self.prompt_template.render(keywords=group).strip() for group in keyword_groups]
-
                 for prompt in prompts:
-                    expanded_ids.append(id)
+                    expanded_ids.append(row_id)
                     expanded_prompts.append(prompt)
 
             if not expanded_prompts:
                 return None
 
-            embeddings = await self._embed_batch(expanded_prompts)
-            self._normalize_vectors(embeddings)
+            logger.debug("retrieve.embed")
+            query_vectors = await self._embed_batch(expanded_prompts)
+            self._normalize_vectors(query_vectors)
 
-            reference_ids, reference_scores = self._search_batch(
-                embeddings=embeddings,
-                source_ids=expanded_ids,
+            logger.debug("retrieve.search")
+            source_ids = np.asarray(expanded_ids, dtype=np.int64)
+            candidate_ids_batch, candidate_scores_batch, candidate_mask_batch = self._search_batch(
+                query_vectors=query_vectors,
+                source_ids=source_ids,
                 faiss_index=faiss_index,
-                faiss_ids=faiss_ids,
             )
 
-            for row_id, prompt, candidate_ids, candidate_scores in zip(
+            output_ids: list[int] = []
+            output_prompts: list[str] = []
+            output_references: list[list[str]] = []
+            output_scores: list[list[float]] = []
+
+            logger.debug("retrieve.zip")
+            for source_id, prompt, candidate_ids, candidate_scores, candidate_mask in zip(
                 expanded_ids,
                 expanded_prompts,
-                reference_ids,
-                reference_scores,
+                candidate_ids_batch,
+                candidate_scores_batch,
+                candidate_mask_batch,
                 strict=True,
             ):
-                references = [jokes_mapping[row_id]]
+                if source_id not in jokes_mapping:
+                    continue
+                references = [jokes_mapping[source_id]]
                 scores = [1.0]
+                masked_ids = cast("list[int]", candidate_ids[candidate_mask].tolist())
+                masked_scores = cast("list[float]", candidate_scores[candidate_mask].tolist())
 
-                for candidate_id, score in zip(candidate_ids, candidate_scores, strict=True):
+                # TODO: Can this be sped up? Think about join with jokes as a frame.
+                for candidate_id, candidate_score in zip(masked_ids, masked_scores, strict=True):
                     if candidate_id not in jokes_mapping:
                         continue
                     references.append(jokes_mapping[candidate_id])
-                    scores.append(float(score))
+                    scores.append(candidate_score)
 
-                output_ids.append(row_id)
+                output_ids.append(source_id)
                 output_prompts.append(prompt)
                 output_references.append(references)
                 output_scores.append(scores)
@@ -435,15 +379,6 @@ class ReferencesPipeline(BasePipeline):
                 references=output_references,
                 scores=output_scores,
             )
-
-    def _build_jokes_lookup(self, jokes: Dataset) -> dict[str, str]:
-        jokes_mapping: dict[str, str] = {}
-        for batch in jokes.iter(batch_size=self.config.faiss_batch_size):
-            batch = cast("dict[str, list[Any]]", batch)
-            ids = cast("list[str]", batch["id"])
-            texts = cast("list[str]", batch["text"])
-            jokes_mapping.update(dict(zip(ids, texts, strict=True)))
-        return jokes_mapping
 
     async def run(
         self,
@@ -457,7 +392,6 @@ class ReferencesPipeline(BasePipeline):
 
         keywords_frame = cast("pl.DataFrame", keywords.to_polars())
         jokes_frame = cast("pl.DataFrame", jokes.to_polars())
-
         joined_frame = jokes_frame.join(keywords_frame, on="id", how="inner").select(["id", "text", "keywords"])
         dataset = Dataset.from_polars(joined_frame)
 
@@ -470,7 +404,7 @@ class ReferencesPipeline(BasePipeline):
 
         dataset = dataset.batch(self.config.input_batch_size)
 
-        faiss_index, faiss_ids = self._build_faiss_index(embeddings)
+        faiss_index = self._build_faiss_index(embeddings)
         jokes_mapping = self._build_jokes_lookup(jokes)
 
         write_buffer: list[ReferencesOutputs] = []
@@ -480,8 +414,8 @@ class ReferencesPipeline(BasePipeline):
         for batch in tqdm(dataset):
             batch = cast("dict[str, list[Any]]", batch)
             inputs = ReferencesInputs(
-                id=batch["id"],
-                keywords=batch["keywords"],
+                id=cast("list[int]", batch["id"]),
+                keywords=cast("list[list[str]]", batch["keywords"]),
             )
 
             task = asyncio.create_task(
@@ -489,7 +423,6 @@ class ReferencesPipeline(BasePipeline):
                     inputs=inputs,
                     semaphore=semaphore,
                     faiss_index=faiss_index,
-                    faiss_ids=faiss_ids,
                     jokes_mapping=jokes_mapping,
                 )
             )
@@ -508,7 +441,6 @@ class ReferencesPipeline(BasePipeline):
             )
 
         self._flush_buffer(write_buffer)
-
         logger.info(
             "run.done",
             model=self.config.model,

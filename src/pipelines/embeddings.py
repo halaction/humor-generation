@@ -38,7 +38,7 @@ class EmbeddingsPipeline(BasePipeline):
 
         self.schema = pa.schema(
             [
-                pa.field("id", pa.string()),
+                pa.field("id", pa.int64()),
                 pa.field("embedding", pa.list_(pa.float32(), self.config.dimensions)),
             ]
         )
@@ -147,7 +147,7 @@ async def main() -> None:
     if not jokes_path.exists():
         jokes_path = build_jokes_dataset()
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:10000]")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:1000]")
     pipeline = EmbeddingsPipeline()
     output_dir = await pipeline.run(jokes, resume=True)
     print(

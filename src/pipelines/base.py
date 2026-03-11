@@ -37,14 +37,14 @@ class BasePipeline(ABC, Generic[P, T]):
 
         return max(indices) + 1 if indices else 0
 
-    def _get_seen_ids(self) -> set[str]:
+    def _get_seen_ids(self) -> set[int]:
         dataset = ds.dataset(self.output_dir, format="parquet")
         if not dataset.files:
             return set()
 
-        array = dataset.to_table(columns=["id"]).column("id").to_numpy()
+        array = np.asarray(dataset.to_table(columns=["id"]).column("id").to_numpy(), dtype=np.int64)
         seen_ids = np.unique(array).tolist()
-        return set(seen_ids)
+        return {int(item) for item in seen_ids}
 
     def _get_table(self, write_buffer: list[T]) -> pa.Table:
         raise NotImplementedError

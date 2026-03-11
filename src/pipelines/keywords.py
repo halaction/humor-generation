@@ -101,7 +101,7 @@ class KeywordsPipeline(BasePipeline):
 
         self.schema = pa.schema(
             [
-                pa.field("id", pa.string()),
+                pa.field("id", pa.int64()),
                 pa.field("keywords", pa.list_(pa.string())),
                 pa.field("scores", pa.list_(pa.float32())),
             ]
@@ -264,7 +264,7 @@ async def main() -> None:
     if not embeddings_dir.exists():
         embeddings_dir = build_embeddings_dataset()
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:10000]")
+    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:1000]")
     embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split="train")
 
     pipeline = KeywordsPipeline()

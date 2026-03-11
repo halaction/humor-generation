@@ -2,9 +2,9 @@ import csv
 import gzip
 from pathlib import Path
 from urllib.parse import urlparse
+from typing import Any
 
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import requests
 from huggingface_hub import HfApi
@@ -88,13 +88,13 @@ def _download_r_jokes() -> Path:
     return destination_dir
 
 
-def _write_parquet(records: list[dict[str, str]], destination: Path) -> Path:
+def _write_parquet(records: list[dict[str, Any]], destination: Path) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     table = pa.Table.from_pylist(
         records,
         schema=pa.schema(
             [
-                pa.field("id", pa.string()),
+                pa.field("id", pa.int64()),
                 pa.field("text", pa.string()),
                 pa.field("source_name", pa.string()),
                 pa.field("source_filename", pa.string()),
@@ -117,7 +117,7 @@ def _preprocess_short_jokes(destination_dir: Path) -> Path:
     output_path = destination_dir / "data.parquet"
     logger.info("preprocess.start", dataset="short-jokes", source_path=str(input_path), output_path=str(output_path))
 
-    records: list[dict[str, str]] = []
+    records: list[dict[str, Any]] = []
     with input_path.open(encoding="utf-8", newline="") as input_file:
         reader = csv.DictReader(input_file)
         for row in reader:
@@ -128,7 +128,7 @@ def _preprocess_short_jokes(destination_dir: Path) -> Path:
 
             records.append(
                 {
-                    "id": "",
+                    "id": 0,
                     "text": text,
                     "source_name": "short-jokes",
                     "source_filename": input_path.name,
@@ -145,7 +145,7 @@ def _preprocess_r_jokes(destination_dir: Path) -> Path:
     output_path = destination_dir / "data.parquet"
     logger.info("preprocess.start", dataset="r-jokes", source_path=str(destination_dir), output_path=str(output_path))
 
-    records: list[dict[str, str]] = []
+    records: list[dict[str, Any]] = []
     for split in ("train", "dev", "test"):
         input_path = destination_dir / f"{split}.tsv"
         with input_path.open(encoding="utf-8", newline="") as input_file:
@@ -160,7 +160,7 @@ def _preprocess_r_jokes(destination_dir: Path) -> Path:
 
                 records.append(
                     {
-                        "id": "",
+                        "id": 0,
                         "text": text,
                         "source_name": "r-jokes",
                         "source_filename": input_path.name,
@@ -184,7 +184,7 @@ def build_jokes_dataset() -> Path:
     r_jokes_table = pq.read_table(r_jokes_path)
     combined_table = pa.concat_tables([short_jokes_table, r_jokes_table])
 
-    global_ids = pc.cast(pa.array(range(combined_table.num_rows), type=pa.int64()), pa.string())
+    global_ids = pa.array(range(combined_table.num_rows), type=pa.int64())
     combined_table = combined_table.set_column(combined_table.schema.get_field_index("id"), "id", global_ids)
 
     output_path = DATA_DIR / config.jokes.data_filename

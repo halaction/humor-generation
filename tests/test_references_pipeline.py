@@ -70,20 +70,25 @@ class _FakeIndexIVFFlat:
         self.dimensions = dimensions
         self.nprobe = 1
         self._vectors = np.empty((0, dimensions), dtype=np.float32)
+        self._ids = np.empty((0,), dtype=np.int64)
 
     @property
     def ntotal(self) -> int:
-        return int(self._vectors.shape[0])
+        return int(self._ids.shape[0])
 
     def train(self, vectors: np.ndarray) -> None:
         if vectors.shape[1] != self.dimensions:
             msg = "Training vectors dimension mismatch."
             raise ValueError(msg)
 
-    def add(self, vectors: np.ndarray) -> None:
+    def add_with_ids(self, vectors: np.ndarray, ids: np.ndarray) -> None:
         if vectors.size == 0:
             return
+        if vectors.shape[0] != ids.shape[0]:
+            msg = "ID count must match vector count."
+            raise ValueError(msg)
         self._vectors = np.vstack([self._vectors, vectors.astype(np.float32, copy=False)])
+        self._ids = np.concatenate([self._ids, ids.astype(np.int64, copy=False)])
 
     def search(self, queries: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
         if self.ntotal == 0:
@@ -94,12 +99,12 @@ class _FakeIndexIVFFlat:
         similarities = queries @ self._vectors.T
         order = np.argsort(-similarities, axis=1)
         scores = np.full((queries.shape[0], k), -np.inf, dtype=np.float32)
-        indices = np.full((queries.shape[0], k), -1, dtype=np.int64)
+        labels = np.full((queries.shape[0], k), -1, dtype=np.int64)
 
         max_width = min(k, self.ntotal)
         scores[:, :max_width] = np.take_along_axis(similarities, order[:, :max_width], axis=1)
-        indices[:, :max_width] = order[:, :max_width].astype(np.int64)
-        return scores, indices
+        labels[:, :max_width] = self._ids[order[:, :max_width]]
+        return scores, labels
 
 
 class _FakeFaiss:
@@ -120,7 +125,12 @@ class _FakeFaiss:
 
     @staticmethod
     def write_index(index: _FakeIndexIVFFlat, path: str) -> None:
-        payload = {"dimensions": index.dimensions, "nprobe": index.nprobe, "vectors": index._vectors}
+        payload = {
+            "dimensions": index.dimensions,
+            "nprobe": index.nprobe,
+            "vectors": index._vectors,
+            "ids": index._ids,
+        }
         with Path(path).open("wb") as output:
             pickle.dump(payload, output)
 
@@ -135,7 +145,7 @@ class _FakeFaiss:
             metric=_FakeFaiss.METRIC_INNER_PRODUCT,
         )
         index.nprobe = payload["nprobe"]
-        index.add(payload["vectors"])
+        index.add_with_ids(payload["vectors"], payload["ids"])
         return index
 
 
@@ -151,7 +161,7 @@ def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Pat
 
     embeddings = Dataset.from_dict(
         {
-            "id": ["0", "1", "2"],
+            "id": [0, 1, 2],
             "embedding": [
                 [1.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0],
@@ -161,13 +171,13 @@ def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Pat
     )
     keywords = Dataset.from_dict(
         {
-            "id": ["0", "1", "2"],
+            "id": [0, 1, 2],
             "keywords": [["cat", "bar"], ["dog", "park"], ["cat", "park"]],
         }
     )
     jokes = Dataset.from_dict(
         {
-            "id": ["0", "1", "2"],
+            "id": [0, 1, 2],
             "text": ["cat joke", "dog joke", "cat park joke"],
         }
     )
@@ -213,15 +223,15 @@ def test_references_pipeline_retrieves_neighbors_and_excludes_self(tmp_path: Pat
     by_id_and_prompt = {(row["id"], row["prompt"]): row for row in rows}
 
     assert len(rows) == 9
-    assert by_id_and_prompt[("0", _render_prompt(["cat"]))]["references"] == ["cat joke", "cat park joke"]
-    assert by_id_and_prompt[("0", _render_prompt(["bar"]))]["references"] == ["cat joke", "cat park joke"]
-    assert by_id_and_prompt[("0", _render_prompt(["cat", "bar"]))]["references"] == ["cat joke", "cat park joke"]
-    assert by_id_and_prompt[("1", _render_prompt(["dog"]))]["references"] == ["dog joke", "cat park joke"]
-    assert by_id_and_prompt[("1", _render_prompt(["park"]))]["references"] == ["dog joke", "cat park joke"]
-    assert by_id_and_prompt[("1", _render_prompt(["dog", "park"]))]["references"] == ["dog joke", "cat park joke"]
-    assert by_id_and_prompt[("2", _render_prompt(["cat"]))]["references"] == ["cat park joke", "cat joke"]
-    assert by_id_and_prompt[("2", _render_prompt(["park"]))]["references"] == ["cat park joke", "cat joke"]
-    assert by_id_and_prompt[("2", _render_prompt(["cat", "park"]))]["references"] == ["cat park joke", "cat joke"]
+    assert by_id_and_prompt[(0, _render_prompt(["cat"]))]["references"] == ["cat joke", "cat park joke"]
+    assert by_id_and_prompt[(0, _render_prompt(["bar"]))]["references"] == ["cat joke", "cat park joke"]
+    assert by_id_and_prompt[(0, _render_prompt(["cat", "bar"]))]["references"] == ["cat joke", "cat park joke"]
+    assert by_id_and_prompt[(1, _render_prompt(["dog"]))]["references"] == ["dog joke", "cat park joke"]
+    assert by_id_and_prompt[(1, _render_prompt(["park"]))]["references"] == ["dog joke", "cat park joke"]
+    assert by_id_and_prompt[(1, _render_prompt(["dog", "park"]))]["references"] == ["dog joke", "cat park joke"]
+    assert by_id_and_prompt[(2, _render_prompt(["cat"]))]["references"] == ["cat park joke", "cat joke"]
+    assert by_id_and_prompt[(2, _render_prompt(["park"]))]["references"] == ["cat park joke", "cat joke"]
+    assert by_id_and_prompt[(2, _render_prompt(["cat", "park"]))]["references"] == ["cat park joke", "cat joke"]
 
     for row in rows:
         assert len(row["scores"]) == 2
@@ -236,7 +246,7 @@ def test_references_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
 
     embeddings = Dataset.from_dict(
         {
-            "id": ["0", "1"],
+            "id": [0, 1],
             "embedding": [
                 [1.0, 0.0],
                 [0.0, 1.0],
@@ -245,13 +255,13 @@ def test_references_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
     )
     keywords = Dataset.from_dict(
         {
-            "id": ["0", "1"],
+            "id": [0, 1],
             "keywords": [["first"], ["second"]],
         }
     )
     jokes = Dataset.from_dict(
         {
-            "id": ["0", "1"],
+            "id": [0, 1],
             "text": ["first joke", "second joke"],
         }
     )

@@ -76,13 +76,13 @@ def test_keywords_pipeline_uses_template_instruction_and_skips_empty_rows(tmp_pa
         client=client,
     )
 
-    jokes = Dataset.from_dict({"id": ["0", "1"], "text": ["cat cat joke", " "]})
-    embeddings = Dataset.from_dict({"id": ["0", "1"], "embedding": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]})
+    jokes = Dataset.from_dict({"id": [0, 1], "text": ["cat cat joke", " "]})
+    embeddings = Dataset.from_dict({"id": [0, 1], "embedding": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]})
 
     asyncio.run(pipeline.run(jokes=jokes, embeddings=embeddings, resume=False))
     rows = _load_rows(tmp_path / "keywords")
 
-    assert [row["id"] for row in rows] == ["0"]
+    assert [row["id"] for row in rows] == [0]
     assert rows[0]["keywords"]
     assert all(query.startswith("Instruct: Given a short keyword or phrase, retrieve jokes") for query in client.embeddings.queries)
     assert max(client.embeddings.batch_sizes) <= 2

@@ -65,7 +65,7 @@ def test_embeddings_pipeline_skips_empty_text_rows(tmp_path: Path) -> None:
 
     jokes = Dataset.from_dict(
         {
-            "id": ["0", "1", "2", "3"],
+            "id": [0, 1, 2, 3],
             "text": ["joke one", " ", "joke two", ""],
         }
     )
@@ -73,6 +73,6 @@ def test_embeddings_pipeline_skips_empty_text_rows(tmp_path: Path) -> None:
     asyncio.run(pipeline.run(jokes, resume=False))
     rows = _load_rows(tmp_path / "embeddings")
 
-    assert {row["id"] for row in rows} == {"0", "2"}
+    assert {row["id"] for row in rows} == {0, 2}
     assert all(len(row["embedding"]) == 4 for row in rows)
     assert pipeline.client.embeddings.batch_sizes == [1, 1]
