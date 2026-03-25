@@ -63,7 +63,7 @@ class ReferencesPipeline(BasePipeline):
         self.schema = pa.schema(
             [
                 pa.field("id", pa.int64()),
-                pa.field("prompt", pa.string()),
+                pa.field("keywords", pa.list_(pa.string())),
                 pa.field("references", pa.list_(pa.string())),
                 pa.field("scores", pa.list_(pa.float32())),
             ]
@@ -313,13 +313,15 @@ class ReferencesPipeline(BasePipeline):
     ) -> ReferencesOutputs | None:
         async with semaphore:
             expanded_ids: list[int] = []
+            expanded_keywords: list[list[str]] = []
             expanded_prompts: list[str] = []
 
             for row_id, keywords in zip(inputs.id, inputs.keywords, strict=True):
                 keyword_groups = self._build_keyword_groups(keywords)
-                prompts = [self.prompt_template.render(keywords=group).strip() for group in keyword_groups]
-                for prompt in prompts:
+                for group in keyword_groups:
+                    prompt = self.prompt_template.render(keywords=group).strip()
                     expanded_ids.append(row_id)
+                    expanded_keywords.append(group)
                     expanded_prompts.append(prompt)
 
             if not expanded_prompts:
@@ -334,13 +336,13 @@ class ReferencesPipeline(BasePipeline):
             )
 
             output_ids: list[int] = []
-            output_prompts: list[str] = []
+            output_keywords: list[list[str]] = []
             output_references: list[list[str]] = []
             output_scores: list[list[float]] = []
 
-            for source_id, prompt, candidate_ids, candidate_scores, candidate_mask in zip(
+            for source_id, keyword_group, candidate_ids, candidate_scores, candidate_mask in zip(
                 expanded_ids,
-                expanded_prompts,
+                expanded_keywords,
                 candidate_ids_batch,
                 candidate_scores_batch,
                 candidate_mask_batch,
@@ -359,13 +361,13 @@ class ReferencesPipeline(BasePipeline):
                     scores.append(candidate_score)
 
                 output_ids.append(source_id)
-                output_prompts.append(prompt)
+                output_keywords.append(keyword_group)
                 output_references.append(references)
                 output_scores.append(scores)
 
             return ReferencesOutputs(
                 id=output_ids,
-                prompt=output_prompts,
+                keywords=output_keywords,
                 references=output_references,
                 scores=output_scores,
             )

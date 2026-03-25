@@ -38,7 +38,7 @@ references:
   min_keywords: 1
   max_keywords: 2
   top_k: 5
-  min_similarity: 0.0
+  min_similarity: 0.5
   input_batch_size: 64
   output_batch_size: 64
   shard_size: 10000

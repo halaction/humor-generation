@@ -35,6 +35,6 @@ class ReferencesInputs(BaseModel):
 
 class ReferencesOutputs(BaseModel):
     id: list[int]
-    prompt: list[str]
+    keywords: list[list[str]]
     references: list[list[str]]
     scores: list[list[float]]

@@ -220,18 +220,18 @@ def test_references_pipeline_retrieves_neighbors_without_manual_self_handling(tm
     asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=False))
 
     rows = _load_output_rows(output_dir=output_dir)
-    by_id_and_prompt = {(row["id"], row["prompt"]): row for row in rows}
+    by_id_and_keywords = {(row["id"], tuple(row["keywords"])): row for row in rows}
 
     assert len(rows) == 9
-    assert by_id_and_prompt[(0, _render_prompt(["cat"]))]["references"] == ["cat joke"]
-    assert by_id_and_prompt[(0, _render_prompt(["bar"]))]["references"] == ["cat joke"]
-    assert by_id_and_prompt[(0, _render_prompt(["cat", "bar"]))]["references"] == ["cat joke"]
-    assert by_id_and_prompt[(1, _render_prompt(["dog"]))]["references"] == ["dog joke"]
-    assert by_id_and_prompt[(1, _render_prompt(["park"]))]["references"] == ["cat park joke"]
-    assert by_id_and_prompt[(1, _render_prompt(["dog", "park"]))]["references"] == ["dog joke"]
-    assert by_id_and_prompt[(2, _render_prompt(["cat"]))]["references"] == ["cat joke"]
-    assert by_id_and_prompt[(2, _render_prompt(["park"]))]["references"] == ["cat park joke"]
-    assert by_id_and_prompt[(2, _render_prompt(["cat", "park"]))]["references"] == ["cat park joke"]
+    assert by_id_and_keywords[(0, ("cat",))]["references"] == ["cat joke"]
+    assert by_id_and_keywords[(0, ("bar",))]["references"] == ["cat joke"]
+    assert by_id_and_keywords[(0, ("cat", "bar"))]["references"] == ["cat joke"]
+    assert by_id_and_keywords[(1, ("dog",))]["references"] == ["dog joke"]
+    assert by_id_and_keywords[(1, ("park",))]["references"] == ["cat park joke"]
+    assert by_id_and_keywords[(1, ("dog", "park"))]["references"] == ["dog joke"]
+    assert by_id_and_keywords[(2, ("cat",))]["references"] == ["cat joke"]
+    assert by_id_and_keywords[(2, ("park",))]["references"] == ["cat park joke"]
+    assert by_id_and_keywords[(2, ("cat", "park"))]["references"] == ["cat park joke"]
 
     for row in rows:
         assert len(row["scores"]) == 1
@@ -302,8 +302,8 @@ def test_references_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
     rows = _load_output_rows(output_dir=output_dir)
 
     assert len(rows) == 2
-    assert rows[0]["prompt"] == _render_prompt(["first"])
-    assert rows[1]["prompt"] == _render_prompt(["second"])
+    assert rows[0]["keywords"] == ["first"]
+    assert rows[1]["keywords"] == ["second"]
     assert rows[0]["references"] == ["first joke"]
     assert rows[1]["references"] == ["second joke"]
     assert len(rows[0]["scores"]) == 1
@@ -371,6 +371,6 @@ def test_references_pipeline_returns_empty_candidates_when_below_min_similarity(
     rows = _load_output_rows(output_dir=output_dir)
 
     assert len(rows) == 1
-    assert rows[0]["prompt"] == _render_prompt(["first"])
+    assert rows[0]["keywords"] == ["first"]
     assert rows[0]["references"] == []
     assert rows[0]["scores"] == []
