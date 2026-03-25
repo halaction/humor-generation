@@ -59,7 +59,6 @@ class ReferencesConfig(BaseModel):
     faiss_nprobe: int = Field(default=32, gt=0)
     faiss_train_size: int = Field(default=200000, gt=0)
     faiss_batch_size: int = Field(default=10000, gt=0)
-    exclude_self: bool = True
     oversample: int = Field(default=10, ge=0)
 
 

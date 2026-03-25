@@ -278,12 +278,9 @@ class ReferencesPipeline(BasePipeline):
     def _search_batch(
         self,
         query_vectors: npt.NDArray[np.float32],
-        source_ids: npt.NDArray[np.int64],
         faiss_index: faiss.IndexIVFFlat,
     ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.float32], npt.NDArray[np.bool_]]:
         search_k = self.config.top_k + self.config.oversample
-        if self.config.exclude_self:
-            search_k += 1
         search_k = min(search_k, int(faiss_index.ntotal))
 
         candidate_scores, candidate_ids = faiss_index.search(query_vectors, search_k)  # type: ignore
@@ -292,8 +289,6 @@ class ReferencesPipeline(BasePipeline):
 
         keep_mask = candidate_ids >= 0
         keep_mask &= candidate_scores >= self.config.min_similarity
-        if self.config.exclude_self:
-            keep_mask &= candidate_ids != np.expand_dims(source_ids, axis=1)
 
         rank_mask = np.cumsum(keep_mask, axis=1, dtype=np.int32) <= self.config.top_k
         keep_mask &= rank_mask
@@ -320,7 +315,6 @@ class ReferencesPipeline(BasePipeline):
             expanded_ids: list[int] = []
             expanded_prompts: list[str] = []
 
-            logger.debug("retrieve.expand")
             for row_id, keywords in zip(inputs.id, inputs.keywords, strict=True):
                 keyword_groups = self._build_keyword_groups(keywords)
                 prompts = [self.prompt_template.render(keywords=group).strip() for group in keyword_groups]
@@ -331,15 +325,11 @@ class ReferencesPipeline(BasePipeline):
             if not expanded_prompts:
                 return None
 
-            logger.debug("retrieve.embed")
             query_vectors = await self._embed_batch(expanded_prompts)
             self._normalize_vectors(query_vectors)
 
-            logger.debug("retrieve.search")
-            source_ids = np.asarray(expanded_ids, dtype=np.int64)
             candidate_ids_batch, candidate_scores_batch, candidate_mask_batch = self._search_batch(
                 query_vectors=query_vectors,
-                source_ids=source_ids,
                 faiss_index=faiss_index,
             )
 
@@ -348,7 +338,6 @@ class ReferencesPipeline(BasePipeline):
             output_references: list[list[str]] = []
             output_scores: list[list[float]] = []
 
-            logger.debug("retrieve.zip")
             for source_id, prompt, candidate_ids, candidate_scores, candidate_mask in zip(
                 expanded_ids,
                 expanded_prompts,
@@ -357,10 +346,8 @@ class ReferencesPipeline(BasePipeline):
                 candidate_mask_batch,
                 strict=True,
             ):
-                if source_id not in jokes_mapping:
-                    continue
-                references = [jokes_mapping[source_id]]
-                scores = [1.0]
+                references: list[str] = []
+                scores: list[float] = []
                 masked_ids = cast("list[int]", candidate_ids[candidate_mask].tolist())
                 masked_scores = cast("list[float]", candidate_scores[candidate_mask].tolist())
 
@@ -528,7 +515,7 @@ def main() -> None:
     output_dir = pipeline.build(
         jokes_split="train",
         embeddings_split="train",
-        keywords_split="train[:10000]",
+        keywords_split="train[:1000]",
         resume=False,
     )
     repo_id, config_name = pipeline.publish()

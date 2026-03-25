@@ -20,8 +20,8 @@ keywords:
   ngram_max: 1
   top_n: 3
   mmr_diversity: 0.7
-  stopwords: false
-  max_candidates: 32
+  stopwords: true
+  max_candidates: 64
   model: "qwen/qwen3-embedding-8b"
   dimensions: 1024
   batch_size: 256
@@ -49,5 +49,4 @@ references:
   faiss_nprobe: 32
   faiss_train_size: 200000
   faiss_batch_size: 10000
-  exclude_self: true
   oversample: 10

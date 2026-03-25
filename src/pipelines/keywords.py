@@ -310,7 +310,7 @@ class KeywordsPipeline(BasePipeline):
 
 def main() -> None:
     pipeline = KeywordsPipeline()
-    output_dir = pipeline.build(jokes_split="train[:10000]", embeddings_split="train", resume=True)
+    output_dir = pipeline.build(jokes_split="train[:1000]", embeddings_split="train", resume=True)
     repo_id, config_name = pipeline.publish()
     print(
         {
