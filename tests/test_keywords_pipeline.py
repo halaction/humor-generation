@@ -84,5 +84,8 @@ def test_keywords_pipeline_uses_template_instruction_and_skips_empty_rows(tmp_pa
 
     assert [row["id"] for row in rows] == [0]
     assert rows[0]["keywords"]
-    assert all(query.startswith("Instruct: Given a short keyword or phrase, retrieve jokes") for query in client.embeddings.queries)
+    assert all(
+        query.startswith("Instruct: Given a short keyword or phrase, retrieve jokes")
+        for query in client.embeddings.queries
+    )
     assert max(client.embeddings.batch_sizes) <= 2

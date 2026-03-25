@@ -4,27 +4,30 @@ import math
 from collections import defaultdict
 from itertools import batched, combinations
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import faiss
 import numpy as np
 import numpy.typing as npt
-import polars as pl
 import pyarrow as pa
+from huggingface_hub import HfApi
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
 from datasets import Dataset, load_dataset
 from src.config import ReferencesConfig, config
-from src.datasets.embeddings import build_embeddings_dataset
-from src.datasets.jokes import build_jokes_dataset
-from src.datasets.keywords import build_keywords_dataset
 from src.logging import get_logger
 from src.models import ReferencesInputs, ReferencesOutputs
 from src.paths import DATA_DIR
 from src.pipelines.base import BasePipeline
+from src.pipelines.embeddings import EmbeddingsPipeline
+from src.pipelines.jokes import JokesPipeline
+from src.pipelines.keywords import KeywordsPipeline
 from src.settings import settings
 from src.templates import environment
+
+if TYPE_CHECKING:
+    import polars as pl
 
 logger = get_logger(__name__)
 
@@ -216,7 +219,7 @@ class ReferencesPipeline(BasePipeline):
             if train_vectors.size == 0:
                 msg = "Cannot train Faiss index with empty training vectors."
                 raise RuntimeError(msg)
-            index.train(train_vectors)
+            index.train(train_vectors)  # type: ignore
 
         indexed_count = 0
         total_batches = math.ceil(expected_rows / self.config.faiss_batch_size) if expected_rows else 0
@@ -238,7 +241,7 @@ class ReferencesPipeline(BasePipeline):
                 raise RuntimeError(msg)
 
             self._normalize_vectors(vectors)
-            index.add_with_ids(vectors, batch_ids)
+            index.add_with_ids(vectors, batch_ids)  # type: ignore
             indexed_count += int(batch_ids.shape[0])
 
         if indexed_count != expected_rows:
@@ -449,40 +452,94 @@ class ReferencesPipeline(BasePipeline):
         )
         return self.output_dir
 
+    def build(
+        self,
+        *,
+        jokes_split: str = "train",
+        embeddings_split: str = "train",
+        keywords_split: str = "train",
+        resume: bool = True,
+    ) -> Path:
+        jokes_path = DATA_DIR / config.jokes.data_filename
+        if not jokes_path.exists():
+            jokes_path = JokesPipeline().build()
 
-async def main() -> None:
-    jokes_path = DATA_DIR / config.jokes.data_filename
-    if not jokes_path.exists():
-        jokes_path = build_jokes_dataset()
+        embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
+        if not embeddings_dir.exists():
+            embeddings_dir = EmbeddingsPipeline().build(split=embeddings_split, resume=True)
 
-    embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
-    if not embeddings_dir.exists():
-        embeddings_dir = build_embeddings_dataset()
+        keywords_dir = DATA_DIR / config.keywords.hf_config_name
+        if not keywords_dir.exists():
+            keywords_dir = KeywordsPipeline().build(
+                jokes_split=jokes_split,
+                embeddings_split=embeddings_split,
+                resume=True,
+            )
 
-    keywords_dir = DATA_DIR / config.keywords.hf_config_name
-    if not keywords_dir.exists():
-        keywords_dir = build_keywords_dataset()
+        jokes = load_dataset("parquet", data_files=str(jokes_path), split=jokes_split)
+        embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split=embeddings_split)
+        keywords = load_dataset("parquet", data_dir=str(keywords_dir), split=keywords_split)
+        output_dir = asyncio.run(
+            self.run(
+                keywords=keywords,
+                embeddings=embeddings,
+                jokes=jokes,
+                resume=resume,
+            )
+        )
+        logger.info(
+            "build.done",
+            output_dir=str(output_dir),
+        )
+        return output_dir
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train")
-    embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split="train")
-    keywords = load_dataset("parquet", data_dir=str(keywords_dir), split="train[:1000]")
+    def publish(
+        self,
+        repo_id: str = settings.HF_DATASET_REPO_ID,
+        config_name: str = config.references.hf_config_name,
+        split: str = "train",
+        private: bool = False,
+    ) -> tuple[str, str]:
+        output_dir = self.output_dir
+        if not output_dir.exists():
+            output_dir = self.build()
 
+        dataset = load_dataset("parquet", data_dir=str(output_dir), split=split)
+        api = HfApi(token=settings.HF_TOKEN)
+        api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
+        dataset.push_to_hub(
+            repo_id=repo_id,
+            config_name=config_name,
+            token=settings.HF_TOKEN,
+            private=private,
+        )
+        logger.info(
+            "publish.done",
+            repo_id=repo_id,
+            output_dir=str(output_dir),
+            config_name=config_name,
+            split=split,
+        )
+        return repo_id, config_name
+
+
+def main() -> None:
     pipeline = ReferencesPipeline()
-    output_dir = await pipeline.run(
-        keywords=keywords,
-        embeddings=embeddings,
-        jokes=jokes,
+    output_dir = pipeline.build(
+        jokes_split="train",
+        embeddings_split="train",
+        keywords_split="train[:10000]",
         resume=False,
     )
+    repo_id, config_name = pipeline.publish()
     print(
         {
-            "jokes_path": str(jokes_path),
-            "embeddings_dir": str(embeddings_dir),
-            "keywords_dir": str(keywords_dir),
             "references_dir": str(output_dir),
+            "repo_id": repo_id,
+            "config_name": config_name,
         }
     )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

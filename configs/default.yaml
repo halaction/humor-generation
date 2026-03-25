@@ -11,7 +11,7 @@ embeddings:
   shard_size: 10000
   max_parallel_requests: 5
   timeout: 60
-  max_retries: 5
+  max_retries: 3
 
 keywords:
   hf_config_name: "keywords"
@@ -21,14 +21,14 @@ keywords:
   top_n: 3
   mmr_diversity: 0.7
   stopwords: false
-  max_candidates: 64
+  max_candidates: 32
   model: "qwen/qwen3-embedding-8b"
   dimensions: 1024
-  batch_size: 64
+  batch_size: 256
   shard_size: 10000
-  max_parallel_requests: 5
+  max_parallel_requests: 15
   timeout: 60
-  max_retries: 5
+  max_retries: 3
 
 references:
   hf_config_name: "references"
@@ -44,7 +44,7 @@ references:
   shard_size: 10000
   max_parallel_requests: 5
   timeout: 60
-  max_retries: 5
+  max_retries: 3
   faiss_nlist: 4096
   faiss_nprobe: 32
   faiss_train_size: 200000

@@ -1,20 +1,20 @@
 import asyncio
-import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, cast
 
 import pyarrow as pa
+from huggingface_hub import HfApi
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
 from datasets import Dataset, load_dataset
 from src.config import EmbeddingsConfig, config
-from src.datasets.jokes import build_jokes_dataset
 from src.logging import get_logger
 from src.models import EmbeddingsInputs, EmbeddingsOutputs
 from src.paths import DATA_DIR
 from src.pipelines.base import BasePipeline
+from src.pipelines.jokes import JokesPipeline
 from src.settings import settings
 
 logger = get_logger(__name__)
@@ -141,25 +141,68 @@ class EmbeddingsPipeline(BasePipeline):
         )
         return self.output_dir
 
+    def build(
+        self,
+        *,
+        split: str = "train",
+        resume: bool = True,
+    ) -> Path:
+        jokes_path = DATA_DIR / config.jokes.data_filename
+        if not jokes_path.exists():
+            jokes_path = JokesPipeline().build()
 
-async def main() -> None:
-    jokes_path = DATA_DIR / config.jokes.data_filename
-    if not jokes_path.exists():
-        jokes_path = build_jokes_dataset()
+        jokes = load_dataset("parquet", data_files=str(jokes_path), split=split)
+        output_dir = asyncio.run(self.run(jokes=jokes, resume=resume))
+        logger.info(
+            "build.done",
+            jokes_data_path=str(jokes_path),
+            output_dir=str(output_dir),
+        )
+        return output_dir
 
-    jokes = load_dataset("parquet", data_files=str(jokes_path), split="train[:1000]")
+    def publish(
+        self,
+        repo_id: str = settings.HF_DATASET_REPO_ID,
+        config_name: str = config.embeddings.hf_config_name,
+        split: str = "train",
+        private: bool = False,
+    ) -> Path:
+        output_dir = self.output_dir
+        if not output_dir.exists():
+            output_dir = self.build()
+
+        dataset = load_dataset("parquet", data_dir=str(output_dir), split=split)
+        api = HfApi(token=settings.HF_TOKEN)
+        api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
+        dataset.push_to_hub(
+            repo_id=repo_id,
+            config_name=config_name,
+            token=settings.HF_TOKEN,
+            private=private,
+        )
+        logger.info(
+            "publish.done",
+            repo_id=repo_id,
+            config_name=config_name,
+            output_dir=str(output_dir),
+            split=split,
+        )
+        return output_dir
+
+
+def main() -> None:
     pipeline = EmbeddingsPipeline()
-    output_dir = await pipeline.run(jokes, resume=True)
+    output_dir = pipeline.build(split="train[:10000]", resume=True)
+    published_dir = pipeline.publish()
     print(
         {
-            "jokes_path": str(jokes_path),
-            "embeddings_path": str(output_dir),
+            "embeddings_dir": str(output_dir),
+            "published_dir": str(published_dir),
+            "repo_id": settings.HF_DATASET_REPO_ID,
+            "config_name": config.embeddings.hf_config_name,
         }
     )
 
-    # embeddings = load_dataset("parquet", data_dir=str(output_dir), split="train[:]")
-    # print(embeddings[0])
-
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
