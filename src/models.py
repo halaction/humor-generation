@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import BaseModel
 
 
@@ -38,3 +39,33 @@ class ReferencesOutputs(BaseModel):
     keywords: list[list[str]]
     references: list[list[str]]
     scores: list[list[float]]
+
+
+class EvaluationCandidate(BaseModel):
+    prompt_id: str
+    prompt: str
+    model: str
+    text: str
+
+
+class EvaluationPair(BaseModel):
+    prompt_id: str
+    prompt: str
+    left_model: str
+    right_model: str
+    left_text: str
+    right_text: str
+
+
+class EvaluationJudgeDecision(BaseModel):
+    winner: Literal["left", "right"]
+
+
+class EvaluationOutputs(BaseModel):
+    prompt_id: list[str]
+    prompt: list[str]
+    left_model: list[str]
+    right_model: list[str]
+    left_text: list[str]
+    right_text: list[str]
+    winner: list[str]

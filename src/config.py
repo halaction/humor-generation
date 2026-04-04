@@ -62,11 +62,28 @@ class ReferencesConfig(BaseModel):
     oversample: int = Field(default=10, ge=0)
 
 
+class EvaluationConfig(BaseModel):
+    hf_config_name: str = "evaluation"
+    data_filename: str = "evaluation.parquet"
+    leaderboard_filename: str = "leaderboard.parquet"
+    model: str
+    input_batch_size: int = Field(default=128, gt=0)
+    shard_size: int = Field(default=5000, gt=0)
+    max_parallel_requests: int = Field(default=16, gt=0)
+    timeout: int = Field(default=60, gt=0)
+    max_retries: int = Field(default=3, gt=0)
+    judge_temperature: float = Field(default=0.0, ge=0.0, le=1.0)
+    max_prompt_chars: int = Field(default=1000, gt=0)
+    max_response_chars: int = Field(default=1200, gt=0)
+    random_seed: int = 42
+
+
 class Config(BaseModel):
     jokes: JokesConfig
     keywords: KeywordsConfig
     embeddings: EmbeddingsConfig
     references: ReferencesConfig
+    evaluation: EvaluationConfig
 
 
 config_path = CONFIGS_DIR / settings.CONFIG_FILENAME
