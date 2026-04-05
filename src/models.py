@@ -42,15 +42,22 @@ class ReferencesOutputs(BaseModel):
 
 
 class EvaluationCandidate(BaseModel):
+    id: int
     prompt_id: str
     prompt: str
+    model_id: str
     model: str
     text: str
 
 
 class EvaluationPair(BaseModel):
+    id: int
     prompt_id: str
     prompt: str
+    left_candidate_id: int
+    right_candidate_id: int
+    left_model_id: str
+    right_model_id: str
     left_model: str
     right_model: str
     left_text: str
@@ -62,8 +69,13 @@ class EvaluationJudgeDecision(BaseModel):
 
 
 class EvaluationOutputs(BaseModel):
+    id: list[int]
     prompt_id: list[str]
     prompt: list[str]
+    left_candidate_id: list[int]
+    right_candidate_id: list[int]
+    left_model_id: list[str]
+    right_model_id: list[str]
     left_model: list[str]
     right_model: list[str]
     left_text: list[str]

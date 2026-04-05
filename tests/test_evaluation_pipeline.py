@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from datasets import Dataset
@@ -66,15 +67,20 @@ class _MockClient:
         self.chat = _MockChat(decisions=decisions, invalid_before_success=invalid_before_success)
 
 
-def _read_rows(path: Path) -> list[dict[str, object]]:
-    return pq.read_table(path).to_pylist()
+def _read_part_rows(directory: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for path in sorted(directory.glob("part-*.parquet")):
+        rows.extend(pq.read_table(path).to_pylist())
+    return rows
 
 
 def test_evaluation_minimal_schema_and_leaderboard(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
+            "id": [1, 2, 3, 4, 5],
             "prompt_id": ["p1", "p1", "p1", "p2", "p2"],
             "prompt": ["prompt one", "prompt one", "prompt one", "prompt two", "prompt two"],
+            "model_id": ["base-v1", "instruct-v1", "thinking-v1", "base-v1", "instruct-v1"],
             "model": ["base", "instruct", "thinking", "base", "instruct"],
             "text": ["base p1", "instruct p1", "thinking p1", "base p2", "instruct p2"],
         }
@@ -98,44 +104,73 @@ def test_evaluation_minimal_schema_and_leaderboard(tmp_path: Path) -> None:
             random_seed=42,
             shard_size=2,
         ),
-        output_dir=tmp_path / "evaluation",
+        output_dir=tmp_path / "bundle",
         client=client,
     )
 
     asyncio.run(pipeline.run(candidates=candidates, resume=False))
 
-    evaluations = _read_rows(tmp_path / "evaluation" / "evaluation.parquet")
+    evaluations = _read_part_rows(tmp_path / "bundle" / "evaluation")
     assert len(evaluations) == 4
     assert client.chat.completions.calls == 4
     assert sorted(evaluations[0].keys()) == [
+        "id",
+        "left_candidate_id",
         "left_model",
+        "left_model_id",
         "left_text",
         "prompt",
         "prompt_id",
+        "right_candidate_id",
         "right_model",
+        "right_model_id",
         "right_text",
         "winner",
     ]
     assert set(row["winner"] for row in evaluations) <= {"left", "right"}
+    assert sorted(int(row["id"]) for row in evaluations) == [0, 1, 2, 3]
 
-    leaderboard = _read_rows(tmp_path / "evaluation" / "leaderboard.parquet")
-    by_model = {row["model"]: row for row in leaderboard}
-    assert by_model["thinking"]["bt_score"] > by_model["base"]["bt_score"]
-    assert by_model["thinking"]["wins"] >= by_model["base"]["wins"]
+    leaderboard = _read_part_rows(tmp_path / "bundle" / "leaderboard")
+    by_model_id = {str(row["model_id"]): row for row in leaderboard}
+    assert by_model_id["thinking-v1"]["bt_score"] > by_model_id["base-v1"]["bt_score"]
+    assert by_model_id["thinking-v1"]["wins"] >= by_model_id["base-v1"]["wins"]
+    assert sorted(int(row["id"]) for row in leaderboard) == [0, 1, 2]
 
 
-def test_evaluation_rejects_duplicate_prompt_model(tmp_path: Path) -> None:
+def test_evaluation_rejects_duplicate_candidate_id(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
+            "id": [1, 1, 2],
             "prompt_id": ["p1", "p1", "p1"],
             "prompt": ["prompt one", "prompt one", "prompt one"],
-            "model": ["base", "base", "instruct"],
+            "model_id": ["base-v1", "instruct-v1", "instruct-v1"],
+            "model": ["base", "instruct", "instruct"],
             "text": ["a", "b", "c"],
         }
     )
     pipeline = EvaluationPipeline(
         pipeline_config=EvaluationConfig(model="mock-judge"),
-        output_dir=tmp_path / "evaluation",
+        output_dir=tmp_path / "bundle",
+        client=_MockClient(decisions={}),
+    )
+
+    with pytest.raises(ValueError):
+        asyncio.run(pipeline.run(candidates=candidates, resume=False))
+
+
+def test_evaluation_requires_model_id(tmp_path: Path) -> None:
+    candidates = Dataset.from_dict(
+        {
+            "id": [1, 2],
+            "prompt_id": ["p1", "p1"],
+            "prompt": ["prompt one", "prompt one"],
+            "model": ["base", "instruct"],
+            "text": ["base p1", "instruct p1"],
+        }
+    )
+    pipeline = EvaluationPipeline(
+        pipeline_config=EvaluationConfig(model="mock-judge"),
+        output_dir=tmp_path / "bundle",
         client=_MockClient(decisions={}),
     )
 
@@ -146,8 +181,10 @@ def test_evaluation_rejects_duplicate_prompt_model(tmp_path: Path) -> None:
 def test_evaluation_resume_skips_existing_rows(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
+            "id": [1, 2],
             "prompt_id": ["p1", "p1"],
             "prompt": ["prompt one", "prompt one"],
+            "model_id": ["base-v1", "instruct-v1"],
             "model": ["base", "instruct"],
             "text": ["base p1", "instruct p1"],
         }
@@ -159,7 +196,7 @@ def test_evaluation_resume_skips_existing_rows(tmp_path: Path) -> None:
     client = _MockClient(decisions=decisions)
     pipeline = EvaluationPipeline(
         pipeline_config=EvaluationConfig(model="mock-judge", random_seed=42, max_retries=1, shard_size=1),
-        output_dir=tmp_path / "evaluation",
+        output_dir=tmp_path / "bundle",
         client=client,
     )
 
@@ -172,8 +209,10 @@ def test_evaluation_resume_skips_existing_rows(tmp_path: Path) -> None:
 def test_evaluation_retries_invalid_output(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
+            "id": [1, 2],
             "prompt_id": ["p1", "p1"],
             "prompt": ["prompt one", "prompt one"],
+            "model_id": ["base-v1", "instruct-v1"],
             "model": ["base", "instruct"],
             "text": ["base p1", "instruct p1"],
         }
@@ -185,36 +224,58 @@ def test_evaluation_retries_invalid_output(tmp_path: Path) -> None:
     client = _MockClient(decisions=decisions, invalid_before_success=1)
     pipeline = EvaluationPipeline(
         pipeline_config=EvaluationConfig(model="mock-judge", max_retries=2, random_seed=42),
-        output_dir=tmp_path / "evaluation",
+        output_dir=tmp_path / "bundle",
         client=client,
     )
 
     asyncio.run(pipeline.run(candidates=candidates, resume=False))
-    rows = _read_rows(tmp_path / "evaluation" / "evaluation.parquet")
+    rows = _read_part_rows(tmp_path / "bundle" / "evaluation")
     assert len(rows) == 1
     assert rows[0]["winner"] in {"left", "right"}
     assert client.chat.completions.calls == 2
 
 
-def test_evaluation_accepts_system_id_and_response_text_aliases(tmp_path: Path) -> None:
+def test_evaluation_resume_keeps_only_candidate_complete_pairs(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
-            "prompt_id": ["p1", "p1"],
-            "prompt": ["prompt one", "prompt one"],
-            "system_id": ["base", "instruct"],
-            "response_text": ["base p1", "instruct p1"],
+            "id": [1, 2, 3, 4],
+            "prompt_id": ["p1", "p1", "p1", "p1"],
+            "prompt": ["prompt one", "prompt one", "prompt one", "prompt one"],
+            "model_id": ["base-v1", "base-v1", "instruct-v1", "instruct-v1"],
+            "model": ["base", "base", "instruct", "instruct"],
+            "text": ["base a", "base b", "instr a", "instr b"],
         }
     )
     decisions = {
-        ("base p1", "instruct p1"): "left",
-        ("instruct p1", "base p1"): "right",
+        ("base a", "instr a"): "left",
+        ("instr a", "base a"): "right",
+        ("base a", "instr b"): "left",
+        ("instr b", "base a"): "right",
+        ("base b", "instr a"): "left",
+        ("instr a", "base b"): "right",
+        ("base b", "instr b"): "left",
+        ("instr b", "base b"): "right",
     }
+    client = _MockClient(decisions=decisions)
     pipeline = EvaluationPipeline(
-        pipeline_config=EvaluationConfig(model="mock-judge", random_seed=42),
-        output_dir=tmp_path / "evaluation",
-        client=_MockClient(decisions=decisions),
+        pipeline_config=EvaluationConfig(model="mock-judge", random_seed=42, max_retries=1, shard_size=10),
+        output_dir=tmp_path / "bundle",
+        client=client,
     )
 
     asyncio.run(pipeline.run(candidates=candidates, resume=False))
-    rows = _read_rows(tmp_path / "evaluation" / "evaluation.parquet")
-    assert len(rows) == 1
+    first_calls = client.chat.completions.calls
+    assert first_calls == 4
+
+    evaluation_dir = tmp_path / "bundle" / "evaluation"
+    existing_rows = _read_part_rows(evaluation_dir)
+    assert len(existing_rows) == 4
+    for path in evaluation_dir.glob("part-*.parquet"):
+        path.unlink()
+    pq.write_table(pa.Table.from_pylist(existing_rows[:3]), evaluation_dir / "part-0000.parquet")
+
+    asyncio.run(pipeline.run(candidates=candidates, resume=True))
+    assert client.chat.completions.calls == first_calls + 3
+
+    rows = _read_part_rows(evaluation_dir)
+    assert len(rows) == 4
