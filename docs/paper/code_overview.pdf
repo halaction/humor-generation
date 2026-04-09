@@ -1,0 +1,324 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >>
+endobj
+3 0 obj
+<< /Length 6307 >>
+stream
+BT
+/F2 16.00 Tf
+1 0 0 1 245.64 777.89 Tm (Code Overview) Tj
+/F2 13.00 Tf
+1 0 0 1 64.00 747.89 Tm (Implementation Rationale) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 730.89 Tm (This section describes the currently implemented codebase as the practical realization of the dataset) Tj
+1 0 0 1 64.00 719.09 Tm (methodology proposed in this thesis. The core idea is that humor data should not be treated as a flat) Tj
+1 0 0 1 64.00 707.29 Tm (collection of isolated jokes. Instead, it should be transformed into a layered resource in which each joke) Tj
+1 0 0 1 64.00 695.49 Tm (is connected to semantic representations, weak constraints, and multiple references. Such a representation) Tj
+1 0 0 1 64.00 683.69 Tm (is better aligned with creative generation, where a single prompt may admit many acceptable outputs and) Tj
+1 0 0 1 64.00 671.89 Tm (where exact lexical overlap is often a poor proxy for semantic relatedness.) Tj
+1 0 0 1 64.00 656.09 Tm (The repository is therefore not merely an engineering scaffold. It operationalizes a research assumption:) Tj
+1 0 0 1 64.00 644.29 Tm (before one can study reasoning-based humor generation, one needs a corpus that is both large and) Tj
+1 0 0 1 64.00 632.49 Tm (semantically structured. The implemented pipeline moves from raw text collection to progressively richer) Tj
+1 0 0 1 64.00 620.69 Tm (annotations, and each stage materializes a separate dataset. Methodologically, this is useful because it) Tj
+1 0 0 1 64.00 608.89 Tm (makes the process reproducible, allows each representation layer to be inspected independently, and avoids) Tj
+1 0 0 1 64.00 597.09 Tm (collapsing the whole construction problem into a single brittle model call.) Tj
+1 0 0 1 64.00 581.29 Tm (A second motivation behind the current design is epistemic caution. In humor research, many desirable labels) Tj
+1 0 0 1 64.00 569.49 Tm (are difficult to define sharply and even harder to annotate consistently at scale. It is therefore) Tj
+1 0 0 1 64.00 557.69 Tm (advantageous to build supervision gradually. Dense embeddings, sparse keywords, and retrieved references are) Tj
+1 0 0 1 64.00 545.89 Tm (not final ground truth in the strict sense, but they are informative intermediate objects that can support) Tj
+1 0 0 1 64.00 534.09 Tm (later training and analysis. The implemented code should thus be read as a pipeline for constructing) Tj
+1 0 0 1 64.00 522.29 Tm (increasingly informative approximations to the latent structure of humorous texts.) Tj
+1 0 0 1 64.00 506.49 Tm (This staged methodology also matches the broader argument of the thesis. The long-term objective is not) Tj
+1 0 0 1 64.00 494.69 Tm (simply to store jokes, but to organize them in a way that supports reasoning-oriented generation and) Tj
+1 0 0 1 64.00 482.89 Tm (learning without relying on a single verifier. For such a setting, the corpus must expose relations between) Tj
+1 0 0 1 64.00 471.09 Tm (jokes: topical proximity, shared constraints, and families of plausible reference answers. The existing code) Tj
+1 0 0 1 64.00 459.29 Tm (already moves in this direction by turning a raw corpus into a set of linked semantic views.) Tj
+/F2 13.00 Tf
+1 0 0 1 64.00 439.49 Tm (Dataset Construction Strategy) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 422.49 Tm (Corpus-first design.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 409.49 Tm (The implemented pipeline begins with large externally available joke corpora rather than with manually) Tj
+1 0 0 1 64.00 397.69 Tm (authored prompts. This reflects a methodological trade-off: if the objective is to construct a resource with) Tj
+1 0 0 1 64.00 385.89 Tm (diverse humor mechanisms, broad topical coverage, and many potential reference answers, then naturally) Tj
+1 0 0 1 64.00 374.09 Tm (occurring joke collections are preferable to small curated prompt-response datasets. They contain recurring) Tj
+1 0 0 1 64.00 362.29 Tm (topics, repeated lexical cues, and stylistic variation that later make multi-reference supervision possible.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 346.49 Tm (Source selection and complementarity.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 333.49 Tm (The current code uses two fixed sources: the Short Jokes corpus and the rJokes corpus. Their combination is) Tj
+1 0 0 1 64.00 321.69 Tm (methodologically attractive because it balances short one-liners with more heterogeneous community-style) Tj
+1 0 0 1 64.00 309.89 Tm (jokes. The first source contributes brevity, lexical compactness, and many formulaic punchline patterns. The) Tj
+1 0 0 1 64.00 298.09 Tm (second contributes broader topical diversity, looser discourse structure, and a wider range of) Tj
+1 0 0 1 64.00 286.29 Tm (community-generated humor forms. Using both sources is therefore a way of reducing dependence on a single) Tj
+1 0 0 1 64.00 274.49 Tm (stylistic regime.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 258.69 Tm (Reproducibility and frozen acquisition.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 245.69 Tm (The sources are downloaded from pinned GitHub commits rather than mutable endpoints, so the acquisition) Tj
+1 0 0 1 64.00 233.89 Tm (process remains stable across runs. This detail matters methodologically because later analysis of retrieval) Tj
+1 0 0 1 64.00 222.09 Tm (quality, prompt construction, or training behavior should not be confounded by silent changes in the) Tj
+1 0 0 1 64.00 210.29 Tm (underlying corpus. Freezing acquisition reduces dataset drift and supports later comparison and ablation) Tj
+1 0 0 1 64.00 198.49 Tm (studies.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 182.69 Tm (Canonicalization and provenance preservation.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 169.69 Tm (After acquisition, the raw files are normalized into a shared parquet representation with a unified global) Tj
+1 0 0 1 64.00 157.89 Tm (identifier, while source metadata are preserved. This reflects the methodological principle that) Tj
+1 0 0 1 64.00 146.09 Tm (heterogeneous corpora should be merged without erasing provenance. Retaining source information makes it) Tj
+1 0 0 1 64.00 134.29 Tm (possible to inspect domain effects, identify source-specific artifacts, or later perform filtering and) Tj
+1 0 0 1 64.00 122.49 Tm (balancing, while the global identifier becomes the stable key for all downstream annotations.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 106.69 Tm (Minimal normalization and noise tolerance.) Tj
+/F1 9.00 Tf
+1 0 0 1 295.16 30.00 Tm (1) Tj
+ET
+endstream
+endobj
+4 0 obj
+<< /Length 6511 >>
+stream
+BT
+/F1 10.20 Tf
+1 0 0 1 64.00 777.89 Tm (The implemented collection stage performs only lightweight cleaning: empty records are removed, identifiers) Tj
+1 0 0 1 64.00 766.09 Tm (are normalized, and all examples are rewritten into a common tabular structure. This restraint is) Tj
+1 0 0 1 64.00 754.29 Tm (methodologically deliberate. Over-aggressive text normalization can destroy exactly those surface) Tj
+1 0 0 1 64.00 742.49 Tm (irregularities that are relevant for humor, including orthographic play, punchline timing, and deliberately) Tj
+1 0 0 1 64.00 730.69 Tm (awkward formulations. The current code therefore prefers a permissive collection strategy in which noise is) Tj
+1 0 0 1 64.00 718.89 Tm (preserved unless it directly prevents downstream processing.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 703.09 Tm (A staged view of semantic structure.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 690.09 Tm (The codebase does not jump directly from raw jokes to prompts or references. Instead, it inserts) Tj
+1 0 0 1 64.00 678.29 Tm (intermediate representational layers. This is motivated by the fact that humor is semantically dense but) Tj
+1 0 0 1 64.00 666.49 Tm (lexically unstable: two jokes may be close in premise or mechanism even if they share little surface) Tj
+1 0 0 1 64.00 654.69 Tm (vocabulary. A staged pipeline therefore offers a more reliable route from text to weak supervision than) Tj
+1 0 0 1 64.00 642.89 Tm (exact matching would.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 627.09 Tm (Expected distributional properties.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 614.09 Tm (From a methodological point of view, the collected corpus should be expected to be uneven. Certain topics,) Tj
+1 0 0 1 64.00 602.29 Tm (lexical triggers, and joke forms occur frequently, while others are rare. This is not merely an) Tj
+1 0 0 1 64.00 590.49 Tm (inconvenience; it is part of the object of study. A prompt-oriented humor dataset naturally has a) Tj
+1 0 0 1 64.00 578.69 Tm (heavy-tailed structure in which some weak constraints map to many jokes and others map to very few. The) Tj
+1 0 0 1 64.00 566.89 Tm (current implementation preserves this structure rather than artificially smoothing it out, because later) Tj
+1 0 0 1 64.00 555.09 Tm (stages such as retrieval and reference construction depend precisely on such non-uniform semantic) Tj
+1 0 0 1 64.00 543.29 Tm (neighborhoods.) Tj
+/F2 13.00 Tf
+1 0 0 1 64.00 523.49 Tm (Semantic Enrichment and Reference Construction) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 506.49 Tm (Dense embeddings as a continuous semantic layer.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 493.49 Tm (The first enrichment stage maps each joke to an embedding vector. Embeddings provide a continuous semantic) Tj
+1 0 0 1 64.00 481.69 Tm (space in which related jokes can become neighbors even when their wording differs. This is especially useful) Tj
+1 0 0 1 64.00 469.89 Tm (for humor, where paraphrase, indirection, and lexical novelty are common. By materializing embeddings as a) Tj
+1 0 0 1 64.00 458.09 Tm (standalone dataset, the pipeline creates the geometric backbone for later retrieval operations.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 442.29 Tm (Why embeddings come before prompt construction.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 429.29 Tm (In principle, one could attempt to derive prompts directly from raw jokes with a language model. The current) Tj
+1 0 0 1 64.00 417.49 Tm (implementation does not begin there. Instead, it first constructs a geometric semantic layer.) Tj
+1 0 0 1 64.00 405.69 Tm (Methodologically, this provides a more stable substrate on which later approximations can operate. A dense) Tj
+1 0 0 1 64.00 393.89 Tm (representation makes it possible to compare jokes, keywords, and weak prompts within a common space, which) Tj
+1 0 0 1 64.00 382.09 Tm (is valuable when exact symbolic mappings are not yet available.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 366.29 Tm (Keywords as an interpretable bottleneck.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 353.29 Tm (The next stage extracts a small set of keywords for each joke. This step should be understood not as naive) Tj
+1 0 0 1 64.00 341.49 Tm (keyword mining, but as semantic compression. The aim is to produce a sparse and interpretable representation) Tj
+1 0 0 1 64.00 329.69 Tm (that captures salient constraints without preserving the whole text. In the implemented system, lexical) Tj
+1 0 0 1 64.00 317.89 Tm (candidates are generated from the joke itself, embedded, and ranked against the embedding of the full joke.) Tj
+1 0 0 1 64.00 306.09 Tm (Maximal marginal relevance balances relevance and diversity, so the final keywords function as compact) Tj
+1 0 0 1 64.00 294.29 Tm (semantic handles that remain human-readable while still being grounded in the embedding space.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 278.49 Tm (The role of diversity in keyword selection.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 265.49 Tm (Diversity is an important methodological consideration here. If keyword extraction simply returned the most) Tj
+1 0 0 1 64.00 253.69 Tm (frequent or most semantically similar terms, the output would often collapse into near-duplicates and fail) Tj
+1 0 0 1 64.00 241.89 Tm (to express the constraint set of the joke. The use of diversity-aware selection acknowledges that a useful) Tj
+1 0 0 1 64.00 230.09 Tm (weak prompt should ideally reflect several facets of a joke at once, for example topic, object, setting, or) Tj
+1 0 0 1 64.00 218.29 Tm (mechanism. Even though the current implementation is lightweight, it already treats keyword extraction as a) Tj
+1 0 0 1 64.00 206.49 Tm (constrained summarization problem rather than as a purely lexical one.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 190.69 Tm (Retrieval as practical prompt inversion.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 177.69 Tm (The broader thesis proposes converting jokes into prompts so that many jokes can be grouped under shared) Tj
+1 0 0 1 64.00 165.89 Tm (weak constraints. The current implementation realizes a practical approximation of this idea. Instead of) Tj
+1 0 0 1 64.00 154.09 Tm (asking a language model to infer prompts for every joke, it forms weak prompt-like queries from keyword) Tj
+1 0 0 1 64.00 142.29 Tm (combinations and retrieves semantically similar jokes in embedding space. Conceptually, this is an) Tj
+1 0 0 1 64.00 130.49 Tm (inversion-by-retrieval strategy: a joke is compressed into salient cues, these cues are expanded into weak) Tj
+1 0 0 1 64.00 118.69 Tm (prompts, and those prompts are used to recover a neighborhood of plausible references.) Tj
+/F1 9.00 Tf
+1 0 0 1 295.16 30.00 Tm (2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Length 6530 >>
+stream
+BT
+/F1 10.20 Tf
+1 0 0 1 64.00 777.89 Tm (This approximation is methodologically defensible. Direct prompt extraction is flexible, but it is also) Tj
+1 0 0 1 64.00 766.09 Tm (expensive and may introduce instability or hallucinated constraints. The implemented retrieval-based route) Tj
+1 0 0 1 64.00 754.29 Tm (sacrifices some expressivity in exchange for reproducibility and control. It still preserves the key) Tj
+1 0 0 1 64.00 742.49 Tm (structural idea needed for later training: the same weak semantic seed can point to multiple acceptable) Tj
+1 0 0 1 64.00 730.69 Tm (jokes. Thus, the current code already instantiates a multi-reference view of humor, even if it does so) Tj
+1 0 0 1 64.00 718.89 Tm (through keyword-guided retrieval rather than full prompt induction.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 703.09 Tm (From keyword groups to weak constraints.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 690.09 Tm (A particularly important feature of the implementation is that it does not restrict itself to a single) Tj
+1 0 0 1 64.00 678.29 Tm (keyword view of each joke. Instead, it forms several keyword groups and turns them into prompt-like queries.) Tj
+1 0 0 1 64.00 666.49 Tm (Methodologically, this matters because humorous texts are often multiply interpretable. One joke can be) Tj
+1 0 0 1 64.00 654.69 Tm (indexed through a topical cue, a relation between concepts, or a more specific object or phrase. Generating) Tj
+1 0 0 1 64.00 642.89 Tm (several weak constraints from the same joke is therefore a way of approximating the fact that a single) Tj
+1 0 0 1 64.00 631.09 Tm (humorous text may belong to several semantic families at once.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 615.29 Tm (Multi-reference structure as the central target.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 602.29 Tm (The ultimate goal of these transformations is not retrieval for its own sake. It is the construction of a) Tj
+1 0 0 1 64.00 590.49 Tm (dataset in which one weak semantic seed is linked to multiple plausible joke references. This is the key) Tj
+1 0 0 1 64.00 578.69 Tm (property needed for the broader thesis, because it shifts the supervision problem away from a single correct) Tj
+1 0 0 1 64.00 566.89 Tm (answer and toward a partially observed set of good answers. The current code reaches this structure) Tj
+1 0 0 1 64.00 555.09 Tm (operationally by storing, for each identifier and keyword group, a list of retrieved references with) Tj
+1 0 0 1 64.00 543.29 Tm (associated similarity scores.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 527.49 Tm (Indexing and scalability.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 514.49 Tm (The use of FAISS for reference retrieval is also part of the methodological design rather than a purely) Tj
+1 0 0 1 64.00 502.69 Tm (technical convenience. A multi-reference dataset is only useful if it can be constructed over hundreds of) Tj
+1 0 0 1 64.00 490.89 Tm (thousands of examples, which makes naive all-pairs comparison impractical. Approximate nearest-neighbor) Tj
+1 0 0 1 64.00 479.09 Tm (search therefore provides a scalable approximation to semantic grouping.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 463.29 Tm (Methodological limitations of retrieval-based inversion.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 450.29 Tm (At the same time, the current implementation should not be mistaken for a perfect realization of prompt) Tj
+1 0 0 1 64.00 438.49 Tm (induction. Retrieval neighborhoods can reflect superficial topical similarity without fully preserving the) Tj
+1 0 0 1 64.00 426.69 Tm (underlying comedic mechanism. Keyword-based weak constraints may underspecify the joke, overspecify it, or) Tj
+1 0 0 1 64.00 414.89 Tm (privilege objects over relations. In addition, nearest-neighbor retrieval can return the original joke or) Tj
+1 0 0 1 64.00 403.09 Tm (jokes that are semantically adjacent but not truly interchangeable as references. These limitations do not) Tj
+1 0 0 1 64.00 391.29 Tm (invalidate the approach, but they clarify what kind of supervision the present pipeline actually constructs:) Tj
+1 0 0 1 64.00 379.49 Tm (a pragmatic approximation to a multi-reference prompt dataset, not a final canonical form of it.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 363.69 Tm (Why the approximation is still useful.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 350.69 Tm (Despite these limitations, the current design remains valuable for research. It already enforces the shift) Tj
+1 0 0 1 64.00 338.89 Tm (from isolated examples to structured neighborhoods; it already separates dense and sparse representations;) Tj
+1 0 0 1 64.00 327.09 Tm (and it already exposes candidate reference sets that can be inspected, filtered, or rescored later. In other) Tj
+1 0 0 1 64.00 315.29 Tm (words, the implemented pipeline does not solve the full prompt construction problem, but it creates the data) Tj
+1 0 0 1 64.00 303.49 Tm (substrate on top of which a more explicit prompt-centric method can be added.) Tj
+/F2 13.00 Tf
+1 0 0 1 64.00 283.69 Tm (Downstream Experimental Utility) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 266.69 Tm (Evaluation as a separate but necessary layer.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 253.69 Tm (The evaluation pipeline is not itself a data collection stage, yet it plays an important methodological role) Tj
+1 0 0 1 64.00 241.89 Tm (in the overall system. It takes externally generated candidate jokes, builds pairwise comparisons within the) Tj
+1 0 0 1 64.00 230.09 Tm (same prompt, and aggregates judgments into leaderboard-style summaries. This reflects a broader assumption) Tj
+1 0 0 1 64.00 218.29 Tm (already discussed in the thesis: humor quality is difficult to verify directly, so practical evaluation) Tj
+1 0 0 1 64.00 206.49 Tm (often relies on comparative judgment rather than absolute scoring.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 190.69 Tm (Pairwise comparison as a natural evaluation format.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 177.69 Tm (This design is especially appropriate for humor. Absolute scores for funniness are unstable and) Tj
+1 0 0 1 64.00 165.89 Tm (context-dependent, whereas pairwise judgments ask a weaker and often more reliable question: which of two) Tj
+1 0 0 1 64.00 154.09 Tm (responses is better for the same prompt? By materializing pairwise outputs and then aggregating them into) Tj
+1 0 0 1 64.00 142.29 Tm (model-level summaries, the current code follows a methodology that is better aligned with the ambiguity of) Tj
+1 0 0 1 64.00 130.49 Tm (humor evaluation than single scalar ratings would be.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 114.69 Tm (Leaderboard construction as an experimental interface.) Tj
+/F1 9.00 Tf
+1 0 0 1 295.16 30.00 Tm (3) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Length 3788 >>
+stream
+BT
+/F1 10.20 Tf
+1 0 0 1 64.00 777.89 Tm (The final leaderboard should therefore be interpreted not as a benchmark in the strict sense, but as an) Tj
+1 0 0 1 64.00 766.09 Tm (interface for model comparison within a controlled experimental setting. Once the data construction pipeline) Tj
+1 0 0 1 64.00 754.29 Tm (produces references and weak constraints, the evaluation pipeline makes it possible to test whether those) Tj
+1 0 0 1 64.00 742.49 Tm (structures are actually useful for generation. In this sense, the repository closes a methodological loop:) Tj
+1 0 0 1 64.00 730.69 Tm (the same project that builds structured supervision also provides a way to assess whether that supervision) Tj
+1 0 0 1 64.00 718.89 Tm (leads to better outputs.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 703.09 Tm (Materialized intermediate datasets.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 690.09 Tm (Another notable property of the current implementation is that every stage writes its outputs as parquet) Tj
+1 0 0 1 64.00 678.29 Tm (shards. This supports resumability and large-scale processing, but it also has methodological value. It) Tj
+1 0 0 1 64.00 666.49 Tm (makes each transformation explicit: jokes, embeddings, keywords, and references are all inspectable as) Tj
+1 0 0 1 64.00 654.69 Tm (separate datasets. For a thesis project, this is useful because it allows failure analysis at the level of) Tj
+1 0 0 1 64.00 642.89 Tm (representation rather than only at the final generation stage.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 627.09 Tm (Resumability and large-scale iteration.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 614.09 Tm (The sharded structure of the outputs also supports a practical research workflow in which collection and) Tj
+1 0 0 1 64.00 602.29 Tm (enrichment can be rerun incrementally. Although this may seem like an engineering detail, it has) Tj
+1 0 0 1 64.00 590.49 Tm (methodological consequences: when a dataset is built in stages, one often wants to improve a single layer) Tj
+1 0 0 1 64.00 578.69 Tm (without discarding all previous computation. The current code supports this style of iterative) Tj
+1 0 0 1 64.00 566.89 Tm (experimentation, which is particularly useful when embedding models, retrieval parameters, or filtering) Tj
+1 0 0 1 64.00 555.09 Tm (criteria are still under active investigation.) Tj
+/F2 10.50 Tf
+1 0 0 1 64.00 539.29 Tm (Current scope of the implementation.) Tj
+/F1 10.20 Tf
+1 0 0 1 64.00 526.29 Tm (Finally, it is important to distinguish between the full conceptual pipeline and the subset that is already) Tj
+1 0 0 1 64.00 514.49 Tm (implemented. The repository already supports reproducible source acquisition, canonicalization, dense) Tj
+1 0 0 1 64.00 502.69 Tm (semantic encoding, interpretable keyword extraction, retrieval-based multi-reference construction, and) Tj
+1 0 0 1 64.00 490.89 Tm (pairwise evaluation. However, it does not yet fully implement the model-based prompt extraction and) Tj
+1 0 0 1 64.00 479.09 Tm (normalization procedure envisioned in the broader methodological plan.) Tj
+1 0 0 1 64.00 463.29 Tm (The current code should therefore be interpreted as an intermediate but coherent realization of the thesis) Tj
+1 0 0 1 64.00 451.49 Tm (direction. It already embodies the main design principles of weak constraints, multiple references, and) Tj
+1 0 0 1 64.00 439.69 Tm (layered semantic structure, while leaving room for a more explicit prompt-centric formulation in future) Tj
+1 0 0 1 64.00 427.89 Tm (work. From a methodological perspective, this is a meaningful stage of progress: the project has already) Tj
+1 0 0 1 64.00 416.09 Tm (moved beyond a raw joke corpus and toward a structured humor dataset that can support retrieval, analysis,) Tj
+1 0 0 1 64.00 404.29 Tm (and future learning objectives.) Tj
+/F1 9.00 Tf
+1 0 0 1 295.16 30.00 Tm (4) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 11 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 3 0 R >>
+endobj
+8 0 obj
+<< /Type /Page /Parent 11 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 4 0 R >>
+endobj
+9 0 obj
+<< /Type /Page /Parent 11 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 5 0 R >>
+endobj
+10 0 obj
+<< /Type /Page /Parent 11 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 6 0 R >>
+endobj
+11 0 obj
+<< /Type /Pages /Kids [7 0 R 8 0 R 9 0 R 10 0 R] /Count 4 >>
+endobj
+12 0 obj
+<< /Type /Catalog /Pages 11 0 R >>
+endobj
+xref
+0 13
+0000000000 65535 f 
+0000000015 00000 n 
+0000000087 00000 n 
+0000000158 00000 n 
+0000006517 00000 n 
+0000013080 00000 n 
+0000019662 00000 n 
+0000023502 00000 n 
+0000023645 00000 n 
+0000023788 00000 n 
+0000023931 00000 n 
+0000024075 00000 n 
+0000024152 00000 n 
+trailer
+<< /Size 13 /Root 12 0 R >>
+startxref
+24203
+%%EOF
