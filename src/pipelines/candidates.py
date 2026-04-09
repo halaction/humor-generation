@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pyarrow as pa
+from huggingface_hub import HfApi
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
@@ -194,6 +195,48 @@ class CandidatesPipeline(BasePipeline):
         logger.info("build.done", output_dir=str(output_dir))
         return output_dir
 
+    def publish(
+        self,
+        repo_id: str = settings.HF_DATASET_REPO_ID,
+        model_id: str = "baseline",
+        split: str = "test",
+        config_name: str | None = None,
+        private: bool = False,
+        model: str | None = None,
+        references_dir: Path | None = None,
+        resume: bool = True,
+    ) -> tuple[str, str]:
+        resolved_config_name = config_name or model_id
+        model_root = self.output_root_dir / model_id
+        split_dir = model_root / split
+
+        has_split_data = split_dir.exists() and any(split_dir.glob("part-*.parquet"))
+        if not has_split_data:
+            msg = f"Expected candidate parquet files for split={split!r} under {model_root}"
+            raise FileNotFoundError(msg)
+
+        data_files = {split: str(split_dir / "part-*.parquet")}
+
+        dataset = load_dataset("parquet", data_files=data_files, split=split)
+        api = HfApi(token=settings.HF_TOKEN)
+        api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
+        dataset.push_to_hub(
+            repo_id=repo_id,
+            config_name=resolved_config_name,
+            token=settings.HF_TOKEN,
+            private=private,
+            split=split,
+        )
+        logger.info(
+            "publish.done",
+            repo_id=repo_id,
+            model_id=model_id,
+            config_name=resolved_config_name,
+            split=split,
+            output_dir=str(model_root),
+        )
+        return repo_id, resolved_config_name
+
 
 def main() -> None:
     pipeline = CandidatesPipeline()
@@ -203,7 +246,14 @@ def main() -> None:
         model_id="baseline",
         resume=False,
     )
-    print({"candidates_dir": str(output_dir)})
+    repo_id, config_name = pipeline.publish(model_id="baseline", split="test")
+    print(
+        {
+            "candidates_dir": str(output_dir),
+            "repo_id": repo_id,
+            "config_name": config_name,
+        }
+    )
 
 
 if __name__ == "__main__":
