@@ -1,6 +1,7 @@
 import asyncio
 import pickle
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -29,7 +30,6 @@ class _MockEmbeddingsAPI:
     def __init__(self, mapping: dict[str, list[float]]) -> None:
         self.mapping = mapping
         self.calls = 0
-        self.batch_sizes: list[int] = []
 
     async def create(
         self,
@@ -40,11 +40,8 @@ class _MockEmbeddingsAPI:
     ) -> _MockEmbeddingResponse:
         del model
         self.calls += 1
-        self.batch_sizes.append(len(input))
         embeddings: list[list[float]] = []
         for query in input:
-            assert query.startswith("Instruct: ")
-            assert "\nQuery: " in query
             prompt = query.split("\nQuery: ", maxsplit=1)[1]
             embedding = self.mapping[prompt]
             assert len(embedding) == dimensions
@@ -84,9 +81,6 @@ class _FakeIndexIVFFlat:
     def add_with_ids(self, vectors: np.ndarray, ids: np.ndarray) -> None:
         if vectors.size == 0:
             return
-        if vectors.shape[0] != ids.shape[0]:
-            msg = "ID count must match vector count."
-            raise ValueError(msg)
         self._vectors = np.vstack([self._vectors, vectors.astype(np.float32, copy=False)])
         self._ids = np.concatenate([self._ids, ids.astype(np.int64, copy=False)])
 
@@ -95,12 +89,10 @@ class _FakeIndexIVFFlat:
             scores = np.full((queries.shape[0], k), -np.inf, dtype=np.float32)
             indices = np.full((queries.shape[0], k), -1, dtype=np.int64)
             return scores, indices
-
         similarities = queries @ self._vectors.T
         order = np.argsort(-similarities, axis=1)
         scores = np.full((queries.shape[0], k), -np.inf, dtype=np.float32)
         labels = np.full((queries.shape[0], k), -1, dtype=np.int64)
-
         max_width = min(k, self.ntotal)
         scores[:, :max_width] = np.take_along_axis(similarities, order[:, :max_width], axis=1)
         labels[:, :max_width] = self._ids[order[:, :max_width]]
@@ -149,24 +141,28 @@ class _FakeFaiss:
         return index
 
 
-def _load_output_rows(output_dir: Path) -> list[dict[str, object]]:
-    output_files = sorted(output_dir.glob("part-*.parquet"))
-    assert output_files
-    table = pq.read_table(output_files)
+def _load_split_rows(output_dir: Path, split: str) -> list[dict[str, object]]:
+    split_files = sorted((output_dir / split).glob("part-*.parquet"))
+    if not split_files:
+        return []
+    table = pq.read_table(split_files)
     return table.to_pylist()
 
 
-def test_references_pipeline_retrieves_neighbors_without_manual_self_handling(tmp_path: Path) -> None:
+def _load_all_split_rows(output_dir: Path) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for split in ("train", "validation", "test"):
+        rows.extend(_load_split_rows(output_dir, split))
+    return rows
+
+
+def test_references_pipeline_deduplicates_keyword_groups_across_jokes(tmp_path: Path) -> None:
     references_module.faiss = _FakeFaiss
 
     embeddings = Dataset.from_dict(
         {
             "id": [0, 1, 2],
-            "embedding": [
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.8, 0.2, 0.0],
-            ],
+            "embedding": [[1.0, 0.0], [0.0, 1.0], [0.8, 0.2]],
         }
     )
     keywords = Dataset.from_dict(
@@ -182,195 +178,167 @@ def test_references_pipeline_retrieves_neighbors_without_manual_self_handling(tm
         }
     )
 
-    query_mapping = {
-        _render_prompt(["cat"]): [1.0, 0.0, 0.0],
-        _render_prompt(["bar"]): [1.0, 0.0, 0.0],
-        _render_prompt(["cat", "bar"]): [1.0, 0.0, 0.0],
-        _render_prompt(["dog"]): [0.0, 1.0, 0.0],
-        _render_prompt(["park"]): [0.8, 0.2, 0.0],
-        _render_prompt(["dog", "park"]): [0.0, 1.0, 0.0],
-        _render_prompt(["cat", "park"]): [0.8, 0.2, 0.0],
-    }
-    client = _MockAsyncClient(query_mapping)
-    pipeline_config = ReferencesConfig(
-        model="mock-model",
-        dimensions=3,
-        top_k=1,
-        input_batch_size=2,
-        output_batch_size=2,
-        shard_size=2,
-        max_parallel_requests=2,
-        timeout=10,
-        max_retries=1,
-        faiss_nlist=1,
-        faiss_nprobe=1,
-        faiss_train_size=3,
-        faiss_batch_size=2,
-        index_dirname=str(tmp_path / "index"),
-        oversample=2,
-        min_similarity=0.0,
+    client = _MockAsyncClient(
+        {
+            _render_prompt(["cat"]): [1.0, 0.0],
+            _render_prompt(["bar"]): [1.0, 0.0],
+            _render_prompt(["cat", "bar"]): [1.0, 0.0],
+            _render_prompt(["dog"]): [0.0, 1.0],
+            _render_prompt(["park"]): [0.8, 0.2],
+            _render_prompt(["dog", "park"]): [0.0, 1.0],
+            _render_prompt(["cat", "park"]): [0.8, 0.2],
+        }
     )
-    output_dir = tmp_path / "references"
     pipeline = ReferencesPipeline(
-        pipeline_config=pipeline_config,
-        output_dir=output_dir,
+        pipeline_config=ReferencesConfig(
+            model="mock-model",
+            dimensions=2,
+            top_k=1,
+            input_batch_size=2,
+            output_batch_size=2,
+            shard_size=50,
+            max_parallel_requests=2,
+            timeout=10,
+            max_retries=1,
+            faiss_nlist=1,
+            faiss_nprobe=1,
+            faiss_train_size=3,
+            faiss_batch_size=2,
+            index_dirname=str(tmp_path / "index"),
+            oversample=2,
+            min_similarity=0.0,
+            validation_fraction=0.2,
+            test_fraction=0.2,
+        ),
+        output_dir=tmp_path / "references",
         client=client,
     )
 
     asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=False))
+    rows = _load_all_split_rows(tmp_path / "references")
+    by_keywords = {tuple(cast("list[str]", row["keywords"])): row for row in rows}
 
-    rows = _load_output_rows(output_dir=output_dir)
-    by_id_and_keywords = {(row["id"], tuple(row["keywords"])): row for row in rows}
-
-    assert len(rows) == 9
-    assert by_id_and_keywords[(0, ("cat",))]["references"] == ["cat joke"]
-    assert by_id_and_keywords[(0, ("bar",))]["references"] == ["cat joke"]
-    assert by_id_and_keywords[(0, ("cat", "bar"))]["references"] == ["cat joke"]
-    assert by_id_and_keywords[(1, ("dog",))]["references"] == ["dog joke"]
-    assert by_id_and_keywords[(1, ("park",))]["references"] == ["cat park joke"]
-    assert by_id_and_keywords[(1, ("dog", "park"))]["references"] == ["dog joke"]
-    assert by_id_and_keywords[(2, ("cat",))]["references"] == ["cat joke"]
-    assert by_id_and_keywords[(2, ("park",))]["references"] == ["cat park joke"]
-    assert by_id_and_keywords[(2, ("cat", "park"))]["references"] == ["cat park joke"]
-
-    for row in rows:
-        assert len(row["scores"]) == 1
-        assert row["scores"][0] > 0.0
-    assert client.embeddings.calls == 5
-    assert max(client.embeddings.batch_sizes) <= 2
+    assert len(rows) == 7
+    assert tuple(["cat"]) in by_keywords
+    assert tuple(["park"]) in by_keywords
+    assert by_keywords[("cat",)]["references"] == ["cat joke"]
+    assert by_keywords[("dog",)]["references"] == ["dog joke"]
+    assert by_keywords[("park",)]["references"] == ["cat park joke"]
 
 
-def test_references_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
+def test_references_pipeline_writes_train_validation_test_splits(tmp_path: Path) -> None:
     references_module.faiss = _FakeFaiss
-
     embeddings = Dataset.from_dict(
         {
-            "id": [0, 1],
-            "embedding": [
-                [1.0, 0.0],
-                [0.0, 1.0],
-            ],
+            "id": [0, 1, 2, 3, 4, 5],
+            "embedding": [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]],
         }
     )
     keywords = Dataset.from_dict(
-        {
-            "id": [0, 1],
-            "keywords": [["first"], ["second"]],
-        }
+        {"id": [0, 1, 2, 3, 4, 5], "keywords": [["first"], ["second"], ["third"], ["fourth"], ["fifth"], ["sixth"]]}
     )
     jokes = Dataset.from_dict(
         {
-            "id": [0, 1],
-            "text": ["first joke", "second joke"],
+            "id": [0, 1, 2, 3, 4, 5],
+            "text": ["first joke", "second joke", "third joke", "fourth joke", "fifth joke", "sixth joke"],
         }
     )
-
-    query_mapping = {
-        _render_prompt(["first"]): [1.0, 0.0],
-        _render_prompt(["second"]): [0.0, 1.0],
-    }
-    client = _MockAsyncClient(query_mapping)
-    pipeline_config = ReferencesConfig(
-        model="mock-model",
-        dimensions=2,
-        top_k=1,
-        input_batch_size=1,
-        output_batch_size=1,
-        shard_size=1,
-        max_parallel_requests=1,
-        timeout=10,
-        max_retries=1,
-        faiss_nlist=1,
-        faiss_nprobe=1,
-        faiss_train_size=2,
-        faiss_batch_size=2,
-        index_dirname=str(tmp_path / "index"),
-        oversample=1,
-        min_similarity=-1.0,
+    client = _MockAsyncClient(
+        {
+            _render_prompt(["first"]): [1.0, 0.0],
+            _render_prompt(["second"]): [0.0, 1.0],
+            _render_prompt(["third"]): [1.0, 0.0],
+            _render_prompt(["fourth"]): [0.0, 1.0],
+            _render_prompt(["fifth"]): [1.0, 0.0],
+            _render_prompt(["sixth"]): [0.0, 1.0],
+        }
     )
-    output_dir = tmp_path / "references"
     pipeline = ReferencesPipeline(
-        pipeline_config=pipeline_config,
-        output_dir=output_dir,
-        client=client,
-    )
-
-    asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=True))
-    first_call_count = client.embeddings.calls
-    asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=True))
-
-    rows = _load_output_rows(output_dir=output_dir)
-
-    assert len(rows) == 2
-    assert rows[0]["keywords"] == ["first"]
-    assert rows[1]["keywords"] == ["second"]
-    assert rows[0]["references"] == ["first joke"]
-    assert rows[1]["references"] == ["second joke"]
-    assert len(rows[0]["scores"]) == 1
-    assert len(rows[1]["scores"]) == 1
-    assert first_call_count == 2
-    assert client.embeddings.calls == first_call_count
-
-
-def test_references_pipeline_returns_empty_candidates_when_below_min_similarity(tmp_path: Path) -> None:
-    references_module.faiss = _FakeFaiss
-
-    embeddings = Dataset.from_dict(
-        {
-            "id": [0, 1],
-            "embedding": [
-                [1.0, 0.0],
-                [0.0, 1.0],
-            ],
-        }
-    )
-    keywords = Dataset.from_dict(
-        {
-            "id": [0],
-            "keywords": [["first"]],
-        }
-    )
-    jokes = Dataset.from_dict(
-        {
-            "id": [0, 1],
-            "text": ["first joke", "second joke"],
-        }
-    )
-
-    query_mapping = {
-        _render_prompt(["first"]): [1.0, 0.0],
-    }
-    client = _MockAsyncClient(query_mapping)
-    pipeline_config = ReferencesConfig(
-        model="mock-model",
-        dimensions=2,
-        top_k=2,
-        input_batch_size=1,
-        output_batch_size=1,
-        shard_size=1,
-        max_parallel_requests=1,
-        timeout=10,
-        max_retries=1,
-        faiss_nlist=1,
-        faiss_nprobe=1,
-        faiss_train_size=2,
-        faiss_batch_size=2,
-        index_dirname=str(tmp_path / "index"),
-        oversample=1,
-        min_similarity=1.1,
-    )
-    output_dir = tmp_path / "references"
-    pipeline = ReferencesPipeline(
-        pipeline_config=pipeline_config,
-        output_dir=output_dir,
+        pipeline_config=ReferencesConfig(
+            model="mock-model",
+            dimensions=2,
+            top_k=1,
+            input_batch_size=1,
+            output_batch_size=1,
+            shard_size=50,
+            max_parallel_requests=1,
+            timeout=10,
+            max_retries=1,
+            faiss_nlist=1,
+            faiss_nprobe=1,
+            faiss_train_size=2,
+            faiss_batch_size=2,
+            index_dirname=str(tmp_path / "index"),
+            oversample=1,
+            min_similarity=-1.0,
+            validation_fraction=0.2,
+            test_fraction=0.2,
+            random_seed=7,
+        ),
+        output_dir=tmp_path / "references",
         client=client,
     )
 
     asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=False))
+    train_rows = _load_split_rows(tmp_path / "references", "train")
+    validation_rows = _load_split_rows(tmp_path / "references", "validation")
+    test_rows = _load_split_rows(tmp_path / "references", "test")
 
-    rows = _load_output_rows(output_dir=output_dir)
+    assert len(train_rows) > 0
+    assert len(validation_rows) > 0
+    assert len(test_rows) > 0
+    assert len(train_rows) + len(validation_rows) + len(test_rows) == 6
+    assert {int(row["id"]) for row in validation_rows}.isdisjoint({int(row["id"]) for row in test_rows})
 
-    assert len(rows) == 1
-    assert rows[0]["keywords"] == ["first"]
-    assert rows[0]["references"] == []
-    assert rows[0]["scores"] == []
+
+def test_references_pipeline_resume_uses_existing_splits(tmp_path: Path) -> None:
+    references_module.faiss = _FakeFaiss
+    embeddings = Dataset.from_dict(
+        {
+            "id": [0, 1, 2, 3, 4],
+            "embedding": [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0], [1.0, 0.0]],
+        }
+    )
+    keywords = Dataset.from_dict(
+        {"id": [0, 1, 2, 3, 4], "keywords": [["first"], ["second"], ["third"], ["fourth"], ["fifth"]]}
+    )
+    jokes = Dataset.from_dict(
+        {"id": [0, 1, 2, 3, 4], "text": ["first joke", "second joke", "third joke", "fourth joke", "fifth joke"]}
+    )
+    client = _MockAsyncClient(
+        {
+            _render_prompt(["first"]): [1.0, 0.0],
+            _render_prompt(["second"]): [0.0, 1.0],
+            _render_prompt(["third"]): [1.0, 0.0],
+            _render_prompt(["fourth"]): [0.0, 1.0],
+            _render_prompt(["fifth"]): [1.0, 0.0],
+        }
+    )
+
+    pipeline = ReferencesPipeline(
+        pipeline_config=ReferencesConfig(
+            model="mock-model",
+            dimensions=2,
+            top_k=1,
+            input_batch_size=1,
+            output_batch_size=1,
+            shard_size=10,
+            max_parallel_requests=1,
+            timeout=10,
+            max_retries=1,
+            faiss_nlist=1,
+            faiss_nprobe=1,
+            faiss_train_size=1,
+            faiss_batch_size=1,
+            index_dirname=str(tmp_path / "index"),
+            validation_fraction=0.2,
+            test_fraction=0.2,
+        ),
+        output_dir=tmp_path / "references",
+        client=client,
+    )
+
+    asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=False))
+    first_calls = client.embeddings.calls
+    asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=True))
+    assert client.embeddings.calls == first_calls

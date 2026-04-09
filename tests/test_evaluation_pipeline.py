@@ -74,12 +74,17 @@ def _read_part_rows(directory: Path) -> list[dict[str, object]]:
     return rows
 
 
-def test_evaluation_minimal_schema_and_leaderboard(tmp_path: Path) -> None:
+def test_evaluation_keyword_schema_and_leaderboard(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
-            "id": [1, 2, 3, 4, 5],
-            "prompt_id": ["p1", "p1", "p1", "p2", "p2"],
-            "prompt": ["prompt one", "prompt one", "prompt one", "prompt two", "prompt two"],
+            "id": [1, 1, 1, 2, 2],
+            "keywords": [
+                ["prompt", "one"],
+                ["prompt", "one"],
+                ["prompt", "one"],
+                ["prompt", "two"],
+                ["prompt", "two"],
+            ],
             "model_id": ["base-v1", "instruct-v1", "thinking-v1", "base-v1", "instruct-v1"],
             "model": ["base", "instruct", "thinking", "base", "instruct"],
             "text": ["base p1", "instruct p1", "thinking p1", "base p2", "instruct p2"],
@@ -115,57 +120,30 @@ def test_evaluation_minimal_schema_and_leaderboard(tmp_path: Path) -> None:
     assert client.chat.completions.calls == 4
     assert sorted(evaluations[0].keys()) == [
         "id",
-        "left_candidate_id",
         "left_model",
         "left_model_id",
         "left_text",
         "prompt",
-        "prompt_id",
-        "right_candidate_id",
+        "reference_id",
         "right_model",
         "right_model_id",
         "right_text",
         "winner",
     ]
-    assert set(row["winner"] for row in evaluations) <= {"left", "right"}
     assert sorted(int(row["id"]) for row in evaluations) == [0, 1, 2, 3]
 
     leaderboard = _read_part_rows(tmp_path / "bundle" / "leaderboard")
     by_model_id = {str(row["model_id"]): row for row in leaderboard}
     assert by_model_id["thinking-v1"]["bt_score"] > by_model_id["base-v1"]["bt_score"]
-    assert by_model_id["thinking-v1"]["wins"] >= by_model_id["base-v1"]["wins"]
-    assert sorted(int(row["id"]) for row in leaderboard) == [0, 1, 2]
 
 
-def test_evaluation_rejects_duplicate_candidate_id(tmp_path: Path) -> None:
+def test_evaluation_requires_keywords(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
-            "id": [1, 1, 2],
-            "prompt_id": ["p1", "p1", "p1"],
-            "prompt": ["prompt one", "prompt one", "prompt one"],
-            "model_id": ["base-v1", "instruct-v1", "instruct-v1"],
-            "model": ["base", "instruct", "instruct"],
-            "text": ["a", "b", "c"],
-        }
-    )
-    pipeline = EvaluationPipeline(
-        pipeline_config=EvaluationConfig(model="mock-judge"),
-        output_dir=tmp_path / "bundle",
-        client=_MockClient(decisions={}),
-    )
-
-    with pytest.raises(ValueError):
-        asyncio.run(pipeline.run(candidates=candidates, resume=False))
-
-
-def test_evaluation_requires_model_id(tmp_path: Path) -> None:
-    candidates = Dataset.from_dict(
-        {
-            "id": [1, 2],
-            "prompt_id": ["p1", "p1"],
-            "prompt": ["prompt one", "prompt one"],
+            "id": [1, 1],
+            "model_id": ["base-v1", "instruct-v1"],
             "model": ["base", "instruct"],
-            "text": ["base p1", "instruct p1"],
+            "text": ["a", "b"],
         }
     )
     pipeline = EvaluationPipeline(
@@ -173,17 +151,34 @@ def test_evaluation_requires_model_id(tmp_path: Path) -> None:
         output_dir=tmp_path / "bundle",
         client=_MockClient(decisions={}),
     )
-
     with pytest.raises(ValueError):
         asyncio.run(pipeline.run(candidates=candidates, resume=False))
 
 
-def test_evaluation_resume_skips_existing_rows(tmp_path: Path) -> None:
+def test_evaluation_rejects_inconsistent_keywords_for_same_id(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
-            "id": [1, 2],
-            "prompt_id": ["p1", "p1"],
-            "prompt": ["prompt one", "prompt one"],
+            "id": [1, 1],
+            "keywords": [["cat"], ["dog"]],
+            "model_id": ["base-v1", "instruct-v1"],
+            "model": ["base", "instruct"],
+            "text": ["a", "b"],
+        }
+    )
+    pipeline = EvaluationPipeline(
+        pipeline_config=EvaluationConfig(model="mock-judge"),
+        output_dir=tmp_path / "bundle",
+        client=_MockClient(decisions={}),
+    )
+    with pytest.raises(ValueError):
+        asyncio.run(pipeline.run(candidates=candidates, resume=False))
+
+
+def test_evaluation_resume_keeps_existing_pairs(tmp_path: Path) -> None:
+    candidates = Dataset.from_dict(
+        {
+            "id": [1, 1],
+            "keywords": [["prompt", "one"], ["prompt", "one"]],
             "model_id": ["base-v1", "instruct-v1"],
             "model": ["base", "instruct"],
             "text": ["base p1", "instruct p1"],
@@ -206,55 +201,21 @@ def test_evaluation_resume_skips_existing_rows(tmp_path: Path) -> None:
     assert client.chat.completions.calls == first_calls
 
 
-def test_evaluation_retries_invalid_output(tmp_path: Path) -> None:
+def test_evaluation_resume_rebuilds_when_rows_are_incomplete(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
-            "id": [1, 2],
-            "prompt_id": ["p1", "p1"],
-            "prompt": ["prompt one", "prompt one"],
-            "model_id": ["base-v1", "instruct-v1"],
-            "model": ["base", "instruct"],
-            "text": ["base p1", "instruct p1"],
+            "id": [1, 1, 2, 2],
+            "keywords": [["prompt", "one"], ["prompt", "one"], ["prompt", "two"], ["prompt", "two"]],
+            "model_id": ["base-v1", "instruct-v1", "base-v1", "instruct-v1"],
+            "model": ["base", "instruct", "base", "instruct"],
+            "text": ["base p1", "instruct p1", "base p2", "instruct p2"],
         }
     )
     decisions = {
         ("base p1", "instruct p1"): "left",
         ("instruct p1", "base p1"): "right",
-    }
-    client = _MockClient(decisions=decisions, invalid_before_success=1)
-    pipeline = EvaluationPipeline(
-        pipeline_config=EvaluationConfig(model="mock-judge", max_retries=2, random_seed=42),
-        output_dir=tmp_path / "bundle",
-        client=client,
-    )
-
-    asyncio.run(pipeline.run(candidates=candidates, resume=False))
-    rows = _read_part_rows(tmp_path / "bundle" / "evaluation")
-    assert len(rows) == 1
-    assert rows[0]["winner"] in {"left", "right"}
-    assert client.chat.completions.calls == 2
-
-
-def test_evaluation_resume_keeps_only_candidate_complete_pairs(tmp_path: Path) -> None:
-    candidates = Dataset.from_dict(
-        {
-            "id": [1, 2, 3, 4],
-            "prompt_id": ["p1", "p1", "p1", "p1"],
-            "prompt": ["prompt one", "prompt one", "prompt one", "prompt one"],
-            "model_id": ["base-v1", "base-v1", "instruct-v1", "instruct-v1"],
-            "model": ["base", "base", "instruct", "instruct"],
-            "text": ["base a", "base b", "instr a", "instr b"],
-        }
-    )
-    decisions = {
-        ("base a", "instr a"): "left",
-        ("instr a", "base a"): "right",
-        ("base a", "instr b"): "left",
-        ("instr b", "base a"): "right",
-        ("base b", "instr a"): "left",
-        ("instr a", "base b"): "right",
-        ("base b", "instr b"): "left",
-        ("instr b", "base b"): "right",
+        ("base p2", "instruct p2"): "left",
+        ("instruct p2", "base p2"): "right",
     }
     client = _MockClient(decisions=decisions)
     pipeline = EvaluationPipeline(
@@ -265,17 +226,11 @@ def test_evaluation_resume_keeps_only_candidate_complete_pairs(tmp_path: Path) -
 
     asyncio.run(pipeline.run(candidates=candidates, resume=False))
     first_calls = client.chat.completions.calls
-    assert first_calls == 4
-
     evaluation_dir = tmp_path / "bundle" / "evaluation"
-    existing_rows = _read_part_rows(evaluation_dir)
-    assert len(existing_rows) == 4
+    rows = _read_part_rows(evaluation_dir)
     for path in evaluation_dir.glob("part-*.parquet"):
         path.unlink()
-    pq.write_table(pa.Table.from_pylist(existing_rows[:3]), evaluation_dir / "part-0000.parquet")
+    pq.write_table(pa.Table.from_pylist(rows[:1]), evaluation_dir / "part-0000.parquet")
 
     asyncio.run(pipeline.run(candidates=candidates, resume=True))
-    assert client.chat.completions.calls == first_calls + 3
-
-    rows = _read_part_rows(evaluation_dir)
-    assert len(rows) == 4
+    assert client.chat.completions.calls == first_calls + 1

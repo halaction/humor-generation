@@ -190,7 +190,9 @@ class EvaluationPipeline(BasePipeline):
             raise ValueError(msg)
 
         frame = frame.sort(["id", "model_id"])
-        candidates_per_reference: dict[int, dict[str, list[EvaluationCandidate]]] = defaultdict(lambda: defaultdict(list))
+        candidates_per_reference: dict[int, dict[str, list[EvaluationCandidate]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
         for row in frame.iter_rows(named=True):
             keywords = cast("list[str]", row["keywords"])
             candidate = EvaluationCandidate(
