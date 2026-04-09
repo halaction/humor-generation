@@ -41,10 +41,17 @@ class ReferencesOutputs(BaseModel):
     scores: list[list[float]]
 
 
+class CandidateOutput(BaseModel):
+    id: int
+    keywords: list[str]
+    model_id: str
+    model: str
+    text: str
+
+
 class EvaluationCandidate(BaseModel):
     id: int
-    prompt_id: str
-    prompt: str
+    keywords: list[str]
     model_id: str
     model: str
     text: str
@@ -52,10 +59,8 @@ class EvaluationCandidate(BaseModel):
 
 class EvaluationPair(BaseModel):
     id: int
-    prompt_id: str
+    reference_id: int
     prompt: str
-    left_candidate_id: int
-    right_candidate_id: int
     left_model_id: str
     right_model_id: str
     left_model: str
@@ -70,10 +75,8 @@ class EvaluationJudgeDecision(BaseModel):
 
 class EvaluationOutputs(BaseModel):
     id: list[int]
-    prompt_id: list[str]
+    reference_id: list[int]
     prompt: list[str]
-    left_candidate_id: list[int]
-    right_candidate_id: list[int]
     left_model_id: list[str]
     right_model_id: list[str]
     left_model: list[str]

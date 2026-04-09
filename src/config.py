@@ -60,6 +60,22 @@ class ReferencesConfig(BaseModel):
     faiss_train_size: int = Field(default=200000, gt=0)
     faiss_batch_size: int = Field(default=10000, gt=0)
     oversample: int = Field(default=10, ge=0)
+    validation_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
+    test_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
+    random_seed: int = 42
+    index_dirname: str = "index"
+
+
+class CandidatesConfig(BaseModel):
+    hf_config_name: str = "candidates"
+    data_filename: str = "candidates.parquet"
+    model: str
+    shard_size: int = Field(default=5000, gt=0)
+    max_parallel_requests: int = Field(default=16, gt=0)
+    timeout: int = Field(default=60, gt=0)
+    max_retries: int = Field(default=3, gt=0)
+    temperature: float = Field(default=1.0, ge=0.0, le=2.0)
+    max_completion_tokens: int = Field(default=128, gt=0)
 
 
 class EvaluationConfig(BaseModel):
@@ -83,6 +99,7 @@ class Config(BaseModel):
     keywords: KeywordsConfig
     embeddings: EmbeddingsConfig
     references: ReferencesConfig
+    candidates: CandidatesConfig
     evaluation: EvaluationConfig
 
 
