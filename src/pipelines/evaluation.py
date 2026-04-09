@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
-from datasets import Dataset, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset
 from src.config import EvaluationConfig, config
 from src.logging import get_logger
 from src.models import EvaluationCandidate, EvaluationJudgeDecision, EvaluationOutputs, EvaluationPair
@@ -42,16 +42,15 @@ class EvaluationPipeline(BasePipeline):
         )
         self.next_part_index = 0
 
+        self.prompt_template = environment.get_template("reference_prompt.j2")
         self.system_template = environment.get_template("evaluation_system.j2")
         self.user_template = environment.get_template("evaluation_user.j2")
 
         self.schema = pa.schema(
             [
                 pa.field("id", pa.int64()),
-                pa.field("prompt_id", pa.string()),
+                pa.field("reference_id", pa.int64()),
                 pa.field("prompt", pa.string()),
-                pa.field("left_candidate_id", pa.int64()),
-                pa.field("right_candidate_id", pa.int64()),
                 pa.field("left_model_id", pa.string()),
                 pa.field("right_model_id", pa.string()),
                 pa.field("left_model", pa.string()),
@@ -75,10 +74,8 @@ class EvaluationPipeline(BasePipeline):
         )
         self._evaluation_columns = [
             "id",
-            "prompt_id",
+            "reference_id",
             "prompt",
-            "left_candidate_id",
-            "right_candidate_id",
             "left_model_id",
             "right_model_id",
             "left_model",
@@ -137,40 +134,32 @@ class EvaluationPipeline(BasePipeline):
     def _check_buffer_size(self, write_buffer: list[EvaluationOutputs]) -> bool:
         return sum(len(batch.id) for batch in write_buffer) >= self.config.shard_size
 
-    def _collect_candidates_per_prompt(
+    def _collect_candidates_per_reference(
         self,
         candidates: Dataset,
-    ) -> dict[str, dict[str, list[EvaluationCandidate]]]:
-        required_columns = {"id", "prompt_id", "prompt", "model_id", "model", "text"}
+    ) -> dict[int, dict[str, list[EvaluationCandidate]]]:
+        required_columns = {"id", "keywords", "model_id", "model", "text"}
         missing = required_columns - set(candidates.column_names)
         if missing:
             msg = f"Missing required columns: {sorted(missing)}"
             raise ValueError(msg)
 
-        frame = cast("pl.DataFrame", candidates.to_polars()).select(
-            ["id", "prompt_id", "prompt", "model_id", "model", "text"]
-        )
+        frame = cast("pl.DataFrame", candidates.to_polars()).select(["id", "keywords", "model_id", "model", "text"])
         frame = frame.with_columns(
             pl.col("id").cast(pl.Int64, strict=True),
-            pl.col("prompt_id").cast(pl.String, strict=False).str.strip_chars(),
-            pl.col("prompt").cast(pl.String, strict=False).str.strip_chars(),
+            pl.col("keywords").cast(pl.List(pl.String), strict=False),
             pl.col("model_id").cast(pl.String, strict=False).str.strip_chars(),
             pl.col("model").cast(pl.String, strict=False).str.strip_chars(),
             pl.col("text").cast(pl.String, strict=False).str.strip_chars(),
-        ).with_columns(
-            pl.col("prompt").str.slice(0, self.config.max_prompt_chars),
-            pl.col("text").str.slice(0, self.config.max_response_chars),
         )
+        frame = frame.with_columns(pl.col("text").str.slice(0, self.config.max_response_chars).alias("text"))
 
         invalid_rows = frame.filter(
             pl.col("id").is_null()
-            | pl.col("prompt_id").is_null()
-            | pl.col("prompt").is_null()
+            | pl.col("keywords").is_null()
             | pl.col("model_id").is_null()
             | pl.col("model").is_null()
             | pl.col("text").is_null()
-            | (pl.col("prompt_id") == "")
-            | (pl.col("prompt") == "")
             | (pl.col("model_id") == "")
             | (pl.col("model") == "")
             | (pl.col("text") == "")
@@ -179,45 +168,49 @@ class EvaluationPipeline(BasePipeline):
             msg = "Candidates contain null or empty required values."
             raise ValueError(msg)
 
-        duplicate_id_count = frame.filter(pl.col("id").is_duplicated()).height
-        if duplicate_id_count > 0:
-            msg = "Duplicate candidate id detected."
+        frame = frame.with_columns(pl.col("keywords").list.eval(pl.element().str.strip_chars()))
+        frame = frame.with_columns(
+            pl.col("keywords")
+            .list.eval(pl.element().filter(pl.element() != ""))
+            .list.unique(maintain_order=True)
+            .alias("keywords")
+        )
+        if frame.filter(pl.col("keywords").list.len() == 0).height > 0:
+            msg = "Each candidate row must contain at least one keyword."
             raise ValueError(msg)
 
-        inconsistent_prompt_count = (
-            frame.group_by("prompt_id")
-            .agg(pl.col("prompt").n_unique().alias("n_prompts"))
-            .filter(pl.col("n_prompts") > 1)
+        inconsistent_keywords_count = (
+            frame.group_by("id")
+            .agg(pl.col("keywords").n_unique().alias("n_keywords"))
+            .filter(pl.col("n_keywords") > 1)
             .height
         )
-        if inconsistent_prompt_count > 0:
-            msg = "Inconsistent prompt text detected for one or more prompt ids."
+        if inconsistent_keywords_count > 0:
+            msg = "Inconsistent keywords detected for one or more reference ids."
             raise ValueError(msg)
 
-        frame = frame.sort(["prompt_id", "model_id", "id"])
-
-        candidates_per_prompt: dict[str, dict[str, list[EvaluationCandidate]]] = defaultdict(lambda: defaultdict(list))
+        frame = frame.sort(["id", "model_id"])
+        candidates_per_reference: dict[int, dict[str, list[EvaluationCandidate]]] = defaultdict(lambda: defaultdict(list))
         for row in frame.iter_rows(named=True):
+            keywords = cast("list[str]", row["keywords"])
             candidate = EvaluationCandidate(
                 id=cast("int", row["id"]),
-                prompt_id=cast("str", row["prompt_id"]),
-                prompt=cast("str", row["prompt"]),
+                keywords=keywords,
                 model_id=cast("str", row["model_id"]),
                 model=cast("str", row["model"]),
                 text=cast("str", row["text"]),
             )
-            candidates_per_prompt[candidate.prompt_id][candidate.model_id].append(candidate)
-
-        return dict(candidates_per_prompt)
+            candidates_per_reference[candidate.id][candidate.model_id].append(candidate)
+        return dict(candidates_per_reference)
 
     def _build_pairs(
-        self, candidates_per_prompt: dict[str, dict[str, list[EvaluationCandidate]]]
+        self, candidates_per_reference: dict[int, dict[str, list[EvaluationCandidate]]]
     ) -> list[EvaluationPair]:
         rng = np.random.default_rng(self.config.random_seed)
         pairs: list[EvaluationPair] = []
         next_id = 0
-        for prompt_id in sorted(candidates_per_prompt):
-            groups = candidates_per_prompt[prompt_id]
+        for reference_id in sorted(candidates_per_reference):
+            groups = candidates_per_reference[reference_id]
             model_ids = sorted(groups)
             for left_model_id, right_model_id in combinations(model_ids, 2):
                 left_group = groups[left_model_id]
@@ -230,14 +223,12 @@ class EvaluationPipeline(BasePipeline):
                         else:
                             first = right_candidate
                             second = left_candidate
-
+                        prompt = self.prompt_template.render(keywords=first.keywords).strip()
                         pairs.append(
                             EvaluationPair(
                                 id=next_id,
-                                prompt_id=prompt_id,
-                                prompt=first.prompt,
-                                left_candidate_id=first.id,
-                                right_candidate_id=second.id,
+                                reference_id=reference_id,
+                                prompt=prompt[: self.config.max_prompt_chars],
                                 left_model_id=first.model_id,
                                 right_model_id=second.model_id,
                                 left_model=first.model,
@@ -263,7 +254,6 @@ class EvaluationPipeline(BasePipeline):
     def _write_rows_to_evaluation_parts(self, rows: list[dict[str, Any]]) -> None:
         if not rows:
             return
-
         for start in range(0, len(rows), self.config.shard_size):
             chunk = rows[start : start + self.config.shard_size]
             table = pa.Table.from_pylist(chunk, schema=self.schema)
@@ -286,18 +276,15 @@ class EvaluationPipeline(BasePipeline):
             return pl.DataFrame(
                 {
                     "id": pl.Series([], dtype=pl.Int64),
-                    "left_candidate_id": pl.Series([], dtype=pl.Int64),
-                    "right_candidate_id": pl.Series([], dtype=pl.Int64),
+                    "reference_id": pl.Series([], dtype=pl.Int64),
                     "left_model_id": pl.Series([], dtype=pl.String),
                     "right_model_id": pl.Series([], dtype=pl.String),
                 }
             )
-
         return pl.DataFrame(
             {
                 "id": [pair.id for pair in pairs],
-                "left_candidate_id": [pair.left_candidate_id for pair in pairs],
-                "right_candidate_id": [pair.right_candidate_id for pair in pairs],
+                "reference_id": [pair.reference_id for pair in pairs],
                 "left_model_id": [pair.left_model_id for pair in pairs],
                 "right_model_id": [pair.right_model_id for pair in pairs],
             }
@@ -317,59 +304,13 @@ class EvaluationPipeline(BasePipeline):
 
         pair_frame = self._pairs_frame(pairs)
         valid_rows = existing_frame.join(
-            pair_frame.select(["id", "left_candidate_id", "right_candidate_id"]),
-            on=["id", "left_candidate_id", "right_candidate_id"],
+            pair_frame.select(["id", "reference_id", "left_model_id", "right_model_id"]),
+            on=["id", "reference_id", "left_model_id", "right_model_id"],
             how="inner",
         )
         if valid_rows.is_empty():
             return []
-
-        expected_neighbors = pl.concat(
-            [
-                pair_frame.select(
-                    pl.col("left_candidate_id").alias("candidate_id"),
-                    pl.col("right_candidate_id").alias("neighbor_id"),
-                ),
-                pair_frame.select(
-                    pl.col("right_candidate_id").alias("candidate_id"),
-                    pl.col("left_candidate_id").alias("neighbor_id"),
-                ),
-            ]
-        ).unique(subset=["candidate_id", "neighbor_id"])
-        expected_counts = expected_neighbors.group_by("candidate_id").len(name="expected_neighbor_count")
-
-        observed_neighbors = pl.concat(
-            [
-                valid_rows.select(
-                    pl.col("left_candidate_id").alias("candidate_id"),
-                    pl.col("right_candidate_id").alias("neighbor_id"),
-                ),
-                valid_rows.select(
-                    pl.col("right_candidate_id").alias("candidate_id"),
-                    pl.col("left_candidate_id").alias("neighbor_id"),
-                ),
-            ]
-        ).unique(subset=["candidate_id", "neighbor_id"])
-        observed_counts = observed_neighbors.group_by("candidate_id").len(name="observed_neighbor_count")
-
-        completed_candidate_ids = (
-            expected_counts.join(observed_counts, on="candidate_id", how="left")
-            .with_columns(pl.col("observed_neighbor_count").fill_null(0))
-            .filter(pl.col("observed_neighbor_count") >= pl.col("expected_neighbor_count"))
-            .get_column("candidate_id")
-            .to_list()
-        )
-        if not completed_candidate_ids:
-            return []
-
-        retained_rows = (
-            valid_rows.filter(
-                pl.col("left_candidate_id").is_in(completed_candidate_ids)
-                & pl.col("right_candidate_id").is_in(completed_candidate_ids)
-            )
-            .sort("id")
-            .to_dicts()
-        )
+        retained_rows = valid_rows.sort("id").to_dicts()
         return cast("list[dict[str, Any]]", retained_rows)
 
     async def _judge_pair(self, pair: EvaluationPair, semaphore: asyncio.Semaphore) -> EvaluationOutputs:
@@ -399,10 +340,8 @@ class EvaluationPipeline(BasePipeline):
                         raise ValueError(msg)
                     return EvaluationOutputs(
                         id=[pair.id],
-                        prompt_id=[pair.prompt_id],
+                        reference_id=[pair.reference_id],
                         prompt=[pair.prompt],
-                        left_candidate_id=[pair.left_candidate_id],
-                        right_candidate_id=[pair.right_candidate_id],
                         left_model_id=[pair.left_model_id],
                         right_model_id=[pair.right_model_id],
                         left_model=[pair.left_model],
@@ -427,14 +366,8 @@ class EvaluationPipeline(BasePipeline):
         frame = self._to_existing_rows_frame(rows)
         labels_frame = pl.concat(
             [
-                frame.select(
-                    pl.col("left_model_id").alias("model_id"),
-                    pl.col("left_model").alias("model"),
-                ),
-                frame.select(
-                    pl.col("right_model_id").alias("model_id"),
-                    pl.col("right_model").alias("model"),
-                ),
+                frame.select(pl.col("left_model_id").alias("model_id"), pl.col("left_model").alias("model")),
+                frame.select(pl.col("right_model_id").alias("model_id"), pl.col("right_model").alias("model")),
             ]
         )
         inconsistent_labels = (
@@ -508,8 +441,8 @@ class EvaluationPipeline(BasePipeline):
         self.evaluation_dir.mkdir(parents=True, exist_ok=True)
         self.leaderboard_dir.mkdir(parents=True, exist_ok=True)
 
-        candidates_per_prompt = self._collect_candidates_per_prompt(candidates)
-        pairs = self._build_pairs(candidates_per_prompt)
+        candidates_per_reference = self._collect_candidates_per_reference(candidates)
+        pairs = self._build_pairs(candidates_per_reference)
         existing_rows = self._read_evaluation_rows() if resume else []
         retained_rows = self._filter_rows_for_resume(existing_rows=existing_rows, pairs=pairs) if resume else []
 
@@ -524,7 +457,6 @@ class EvaluationPipeline(BasePipeline):
             self.next_part_index = self._get_next_part_index()
 
         seen_ids = {cast("int", row["id"]) for row in retained_rows}
-
         write_buffer: list[EvaluationOutputs] = []
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
         pending_tasks: set[asyncio.Task[EvaluationOutputs]] = set()
@@ -546,10 +478,8 @@ class EvaluationPipeline(BasePipeline):
             )
 
         self._flush_buffer(write_buffer)
-
         all_rows = self._read_evaluation_rows()
         self._write_leaderboard(rows=all_rows)
-
         logger.info(
             "run.done",
             output_dir=str(self.root_dir),
@@ -561,11 +491,19 @@ class EvaluationPipeline(BasePipeline):
     def build(
         self,
         *,
-        candidates_path: Path,
+        candidate_paths: list[Path],
         split: str = "train",
         resume: bool = True,
     ) -> Path:
-        candidates = load_dataset("parquet", data_files=str(candidates_path), split=split)
+        datasets = []
+        for path in candidate_paths:
+            dataset = load_dataset(
+                "parquet",
+                data_files={split: str(path / split / "part-*.parquet")},
+                split=split,
+            )
+            datasets.append(dataset)
+        candidates = concatenate_datasets(datasets)
         output_dir = asyncio.run(self.run(candidates=candidates, resume=resume))
         logger.info("build.done", output_dir=str(output_dir))
         return output_dir
@@ -573,11 +511,12 @@ class EvaluationPipeline(BasePipeline):
 
 def main() -> None:
     pipeline = EvaluationPipeline()
-    candidates_path = DATA_DIR / "evaluation_candidates.parquet"
-    if not candidates_path.exists():
-        msg = f"Expected candidates parquet at {candidates_path}"
+    candidates_root = DATA_DIR / config.candidates.hf_config_name
+    model_dirs = [path for path in candidates_root.iterdir() if path.is_dir()] if candidates_root.exists() else []
+    if not model_dirs:
+        msg = f"Expected per-model candidate directories under {candidates_root}"
         raise FileNotFoundError(msg)
-    output_dir = pipeline.build(candidates_path=candidates_path, resume=False)
+    output_dir = pipeline.build(candidate_paths=model_dirs, split="test", resume=False)
     print({"evaluation_dir": str(output_dir)})
 
 
