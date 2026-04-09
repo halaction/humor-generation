@@ -1,6 +1,7 @@
 import asyncio
 import json
 import math
+import shutil
 from collections import defaultdict
 from itertools import batched, combinations
 from pathlib import Path
@@ -10,11 +11,12 @@ import faiss
 import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
+import pyarrow.parquet as pq
 from huggingface_hub import HfApi
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
-from datasets import Dataset, load_dataset
+from datasets import Dataset, concatenate_datasets, load_dataset
 from src.config import ReferencesConfig, config
 from src.logging import get_logger
 from src.models import ReferencesInputs, ReferencesOutputs
@@ -32,6 +34,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _INDEX_ID_STORAGE = "faiss_add_with_ids_int64_v1"
+_SPLITS = ("train", "validation", "test")
 
 
 class ReferencesPipeline(BasePipeline):
@@ -45,6 +48,7 @@ class ReferencesPipeline(BasePipeline):
         if self.config.min_keywords > self.config.max_keywords:
             msg = "`min_keywords` must be less than or equal to `max_keywords`."
             raise ValueError(msg)
+
         self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
@@ -53,7 +57,7 @@ class ReferencesPipeline(BasePipeline):
         )
         self.next_part_index = 0
 
-        self.index_dir = DATA_DIR / "index"
+        self.index_dir = DATA_DIR / self.config.index_dirname
         self.index_path = self.index_dir / "index.faiss"
         self.meta_path = self.index_dir / "meta.json"
 
@@ -353,7 +357,6 @@ class ReferencesPipeline(BasePipeline):
                 masked_ids = cast("list[int]", candidate_ids[candidate_mask].tolist())
                 masked_scores = cast("list[float]", candidate_scores[candidate_mask].tolist())
 
-                # TODO: Can this be sped up? Think about join with jokes as a frame.
                 for candidate_id, candidate_score in zip(masked_ids, masked_scores, strict=True):
                     if candidate_id not in jokes_mapping:
                         continue
@@ -372,6 +375,92 @@ class ReferencesPipeline(BasePipeline):
                 scores=output_scores,
             )
 
+    def _is_split(self) -> bool:
+        for split in _SPLITS:
+            split_dir = self.output_dir / split
+            if not split_dir.exists():
+                return False
+            if not any(split_dir.glob("part-*.parquet")):
+                return False
+        return True
+
+    def _clear_outputs(self) -> None:
+        for part in self.output_dir.glob("part-*.parquet"):
+            part.unlink()
+        for split in _SPLITS:
+            split_dir = self.output_dir / split
+            if split_dir.exists():
+                shutil.rmtree(split_dir)
+
+    @staticmethod
+    def _deduplicate_dataset(dataset: Dataset) -> Dataset:
+        if len(dataset) == 0:
+            return dataset
+
+        frame = cast("pl.DataFrame", dataset.to_polars())
+        deduplicated = frame.unique(subset=["keywords"], keep="first", maintain_order=True)
+        deduplicated = deduplicated.with_row_index("id").select(["id", "keywords", "references", "scores"])
+
+        return Dataset.from_polars(deduplicated)
+
+    def _write_split_dataset(self, split: str, dataset: Dataset) -> None:
+        split_dir = self.output_dir / split
+        split_dir.mkdir(parents=True, exist_ok=True)
+        for part in split_dir.glob("part-*.parquet"):
+            part.unlink()
+
+        n_shards = math.ceil(len(dataset) / self.config.shard_size)
+        for shard_index in range(n_shards):
+            shard = dataset.shard(num_shards=n_shards, index=shard_index, contiguous=True)
+            table = pa.Table.from_pydict(shard[:], schema=self.schema)
+            pq.write_table(
+                table,
+                split_dir / f"part-{shard_index:04d}.parquet",
+                compression="zstd",
+                use_content_defined_chunking=True,
+                write_page_index=True,
+            )
+
+    def _split_dataset(self, dataset: Dataset) -> dict[str, Dataset]:
+        if len(dataset) == 0:
+            return dict.fromkeys(_SPLITS, dataset)
+
+        split = dataset.train_test_split(
+            test_size=self.config.test_fraction,
+            seed=self.config.random_seed,
+        )
+        train_validation_dataset = split["train"]
+        test_dataset = split["test"]
+        validation_ratio = self.config.validation_fraction / (1.0 - self.config.test_fraction)
+        split = train_validation_dataset.train_test_split(
+            test_size=validation_ratio,
+            seed=self.config.random_seed,
+        )
+        train_dataset = split["train"]
+        validation_dataset = split["test"]
+
+        return {
+            "train": train_dataset,
+            "validation": validation_dataset,
+            "test": test_dataset,
+        }
+
+    def _train_test_split(self) -> None:
+        dataset = load_dataset(
+            "parquet",
+            data_dir=str(self.output_dir),
+            split="train",
+            cache_dir=str(self.output_dir / ".hf_cache"),
+        )
+        dataset = self._deduplicate_dataset(dataset)
+        split_datasets = self._split_dataset(dataset)
+
+        for split, split_dataset in split_datasets.items():
+            self._write_split_dataset(split=split, dataset=split_dataset)
+
+        for part in self.output_dir.glob("part-*.parquet"):
+            part.unlink()
+
     async def run(
         self,
         keywords: Dataset,
@@ -380,6 +469,10 @@ class ReferencesPipeline(BasePipeline):
         resume: bool = False,
     ) -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        if resume and self._is_split():
+            return self.output_dir
+
         self.next_part_index = self._get_next_part_index()
 
         keywords_frame = cast("pl.DataFrame", keywords.to_polars())
@@ -390,9 +483,9 @@ class ReferencesPipeline(BasePipeline):
         if resume:
             seen_ids = self._get_seen_ids()
             dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
-        elif self.next_part_index > 0:
-            for file in self.output_dir.glob("part-*.parquet"):
-                file.unlink()
+        elif self.next_part_index > 0 or self._is_split():
+            self._clear_outputs()
+            self.next_part_index = 0
 
         dataset = dataset.batch(self.config.input_batch_size)
 
@@ -433,6 +526,9 @@ class ReferencesPipeline(BasePipeline):
             )
 
         self._flush_buffer(write_buffer)
+
+        self._train_test_split()
+
         logger.info(
             "run.done",
             model=self.config.model,
@@ -493,7 +589,12 @@ class ReferencesPipeline(BasePipeline):
         if not output_dir.exists():
             output_dir = self.build()
 
-        dataset = load_dataset("parquet", data_dir=str(output_dir), split=split)
+        data_files = {
+            "train": str(output_dir / "train" / "part-*.parquet"),
+            "validation": str(output_dir / "validation" / "part-*.parquet"),
+            "test": str(output_dir / "test" / "part-*.parquet"),
+        }
+        dataset = load_dataset("parquet", data_files=data_files, split=split)
         api = HfApi(token=settings.HF_TOKEN)
         api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
         dataset.push_to_hub(
@@ -501,6 +602,7 @@ class ReferencesPipeline(BasePipeline):
             config_name=config_name,
             token=settings.HF_TOKEN,
             private=private,
+            split=split,
         )
         logger.info(
             "publish.done",
