@@ -25,7 +25,6 @@ class _MockEmbeddingsAPI:
 
     async def create(
         self,
-        *,
         model: str,
         input: list[str],
         dimensions: int,
@@ -85,7 +84,6 @@ def test_keywords_pipeline_uses_template_instruction_and_skips_empty_rows(tmp_pa
     assert [row["id"] for row in rows] == [0]
     assert rows[0]["keywords"]
     assert all(
-        query.startswith("Instruct: Given a keyword for a joke, retrieve jokes")
-        for query in client.embeddings.queries
+        query.startswith("Instruct: Given a keyword for a joke, retrieve jokes") for query in client.embeddings.queries
     )
     assert max(client.embeddings.batch_sizes) <= 2

@@ -24,7 +24,6 @@ class _MockEmbeddingsAPI:
 
     async def create(
         self,
-        *,
         model: str,
         input: list[str],
         dimensions: int,

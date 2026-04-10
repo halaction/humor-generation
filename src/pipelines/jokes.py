@@ -10,10 +10,11 @@ import requests
 from huggingface_hub import HfApi
 
 from datasets import load_dataset
-from src.config import config
+from src.config import JokesConfig, config
 from src.logging import get_logger
 from src.paths import DATA_DIR
 from src.settings import settings
+from src.pipelines.base import BasePipeline
 
 logger = get_logger(__name__)
 
@@ -25,7 +26,15 @@ def _parse_source_id(value: str) -> int:
         return -1
 
 
-class JokesPipeline:
+class JokesPipeline(BasePipeline):
+    def __init__(
+        self,
+        pipeline_config: JokesConfig | None = None,
+        output_dir: Path | None = None,
+    ) -> None:
+        self.config = pipeline_config or config.jokes
+        self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
+
     def _download_file(self, url: str, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -174,7 +183,7 @@ class JokesPipeline:
         logger.info("preprocess.done", dataset="r-jokes", rows=len(records), output_path=str(output_path))
         return output_path
 
-    def build(self) -> Path:
+    def build(self) -> None:
         short_jokes_dir = self._download_short_jokes()
         short_jokes_path = self._preprocess_short_jokes(short_jokes_dir)
 
@@ -188,7 +197,8 @@ class JokesPipeline:
         global_ids = pa.array(range(combined_table.num_rows), type=pa.int64())
         combined_table = combined_table.set_column(combined_table.schema.get_field_index("id"), "id", global_ids)
 
-        output_path = DATA_DIR / config.jokes.data_filename
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = self.output_dir / "part-0000.parquet"
         pq.write_table(
             combined_table,
             output_path,
@@ -196,8 +206,11 @@ class JokesPipeline:
             use_content_defined_chunking=True,
             write_page_index=True,
         )
-        logger.info("build.done", rows=combined_table.num_rows, output_path=str(output_path))
-        return output_path
+        logger.info(
+            "build.done",
+            rows=combined_table.num_rows,
+            output_path=str(output_path),
+        )
 
     def publish(
         self,
@@ -205,11 +218,12 @@ class JokesPipeline:
         config_name: str = config.jokes.hf_config_name,
         split: str = "train",
         private: bool = False,
-    ) -> tuple[str, str]:
-        target_path = DATA_DIR / config.jokes.data_filename
-        if not target_path.exists():
-            target_path = self.build()
-        dataset = load_dataset("parquet", data_files=str(target_path), split=split)
+    ) -> None:
+        output_dir = self.output_dir
+        if not output_dir.exists():
+            output_dir = self.build()
+
+        dataset = load_dataset("parquet", data_dir=str(output_dir), split=split)
         api = HfApi(token=settings.HF_TOKEN)
         api.create_repo(
             repo_id=repo_id,
@@ -226,23 +240,22 @@ class JokesPipeline:
         logger.info(
             "publish.done",
             repo_id=repo_id,
-            parquet_path=str(target_path),
+            output_dir=str(output_dir),
             config_name=config_name,
             split=split,
         )
-        return repo_id, config_name
 
 
 def main() -> None:
     pipeline = JokesPipeline()
-    jokes_path = pipeline.build()
-    repo_id, config_name = pipeline.publish()
-    print(
-        {
-            "jokes_path": str(jokes_path),
-            "repo_id": repo_id,
-            "config_name": config_name,
-        }
+    pipeline.build()
+    pipeline.publish()
+
+    logger.info(
+        "main.done",
+        jokes_path=str(pipeline.output_dir),
+        repo_id=settings.HF_DATASET_REPO_ID,
+        config_name=pipeline.config.hf_config_name,
     )
 
 

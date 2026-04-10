@@ -34,7 +34,6 @@ class _MockChatCompletions:
 
     async def parse(
         self,
-        *,
         model: str,
         temperature: float,
         messages: list[dict[str, str]],

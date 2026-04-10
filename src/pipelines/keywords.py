@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
+from datasets import Dataset, load_dataset
 from huggingface_hub import HfApi
 from openai import AsyncOpenAI
 from sklearn.feature_extraction.text import CountVectorizer
 from tqdm.auto import tqdm
 
-from datasets import Dataset, load_dataset
 from src.config import KeywordsConfig, config
 from src.logging import get_logger
 from src.models import KeywordsInputs, KeywordsOutputs
@@ -199,7 +199,7 @@ class KeywordsPipeline(BasePipeline):
         jokes: Dataset,
         embeddings: Dataset,
         resume: bool = False,
-    ) -> Path:
+    ) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.next_part_index = self._get_next_part_index()
 
@@ -208,12 +208,7 @@ class KeywordsPipeline(BasePipeline):
         joined_frame = jokes_frame.join(embeddings_frame, on="id", how="inner").select(["id", "text", "embedding"])
         dataset = Dataset.from_polars(joined_frame)
 
-        if resume:
-            seen_ids = self._get_seen_ids()
-            dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
-        elif self.next_part_index > 0:
-            for file in self.output_dir.glob("part-*.parquet"):
-                file.unlink()
+        dataset = self._check_progress(dataset, resume)
 
         write_buffer: list[KeywordsOutputs] = []
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
@@ -252,31 +247,27 @@ class KeywordsPipeline(BasePipeline):
             output_dir=str(self.output_dir),
         )
 
-        return self.output_dir
-
     def build(
         self,
-        *,
         jokes_split: str = "train",
         embeddings_split: str = "train",
         resume: bool = True,
-    ) -> Path:
-        jokes_path = DATA_DIR / config.jokes.data_filename
-        if not jokes_path.exists():
-            jokes_path = JokesPipeline().build()
+    ) -> None:
+        jokes_dir = DATA_DIR / config.jokes.hf_config_name
+        if not jokes_dir.exists():
+            JokesPipeline().build()
 
         embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
         if not embeddings_dir.exists():
-            embeddings_dir = EmbeddingsPipeline().build(split=embeddings_split, resume=True)
+            EmbeddingsPipeline().build(split=embeddings_split, resume=True)
 
-        jokes = load_dataset("parquet", data_files=str(jokes_path), split=jokes_split)
+        jokes = load_dataset("parquet", data_dir=str(jokes_dir), split=jokes_split)
         embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split=embeddings_split)
-        output_dir = asyncio.run(self.run(jokes=jokes, embeddings=embeddings, resume=resume))
+        asyncio.run(self.run(jokes=jokes, embeddings=embeddings, resume=resume))
         logger.info(
             "build.done",
-            output_dir=str(output_dir),
+            output_dir=str(self.output_dir),
         )
-        return output_dir
 
     def publish(
         self,
@@ -284,12 +275,11 @@ class KeywordsPipeline(BasePipeline):
         config_name: str = config.keywords.hf_config_name,
         split: str = "train",
         private: bool = False,
-    ) -> tuple[str, str]:
-        output_dir = self.output_dir
-        if not output_dir.exists():
-            output_dir = self.build()
+    ) -> None:
+        if not self.output_dir.exists():
+            self.build()
 
-        dataset = load_dataset("parquet", data_dir=str(output_dir), split=split)
+        dataset = load_dataset("parquet", data_dir=str(self.output_dir), split=split)
         api = HfApi(token=settings.HF_TOKEN)
         api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
         dataset.push_to_hub(
@@ -301,23 +291,22 @@ class KeywordsPipeline(BasePipeline):
         logger.info(
             "publish.done",
             repo_id=repo_id,
-            output_dir=str(output_dir),
+            output_dir=str(self.output_dir),
             config_name=config_name,
             split=split,
         )
-        return repo_id, config_name
 
 
 def main() -> None:
     pipeline = KeywordsPipeline()
-    output_dir = pipeline.build(jokes_split="train[:1000]", embeddings_split="train", resume=True)
-    repo_id, config_name = pipeline.publish()
-    print(
-        {
-            "keywords_dir": str(output_dir),
-            "repo_id": repo_id,
-            "config_name": config_name,
-        }
+    pipeline.build(jokes_split="train[:1005]", embeddings_split="train", resume=True)
+    pipeline.publish()
+
+    logger.info(
+        "main.done",
+        keywords_dir=str(pipeline.output_dir),
+        repo_id=settings.HF_DATASET_REPO_ID,
+        config_name=pipeline.config.hf_config_name,
     )
 
 

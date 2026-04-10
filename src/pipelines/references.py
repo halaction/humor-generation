@@ -1,7 +1,6 @@
 import asyncio
 import json
 import math
-import shutil
 from collections import defaultdict
 from itertools import batched, combinations
 from pathlib import Path
@@ -12,11 +11,11 @@ import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 import pyarrow.parquet as pq
+from datasets import Dataset, load_dataset
 from huggingface_hub import HfApi
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
-from datasets import Dataset, concatenate_datasets, load_dataset
 from src.config import ReferencesConfig, config
 from src.logging import get_logger
 from src.models import ReferencesInputs, ReferencesOutputs
@@ -49,7 +48,9 @@ class ReferencesPipeline(BasePipeline):
             msg = "`min_keywords` must be less than or equal to `max_keywords`."
             raise ValueError(msg)
 
-        self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
+        self.root_dir = output_dir or DATA_DIR / self.config.hf_config_name
+        self.output_dir = self.root_dir / "full"
+
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
@@ -375,23 +376,6 @@ class ReferencesPipeline(BasePipeline):
                 scores=output_scores,
             )
 
-    def _is_split(self) -> bool:
-        for split in _SPLITS:
-            split_dir = self.output_dir / split
-            if not split_dir.exists():
-                return False
-            if not any(split_dir.glob("part-*.parquet")):
-                return False
-        return True
-
-    def _clear_outputs(self) -> None:
-        for part in self.output_dir.glob("part-*.parquet"):
-            part.unlink()
-        for split in _SPLITS:
-            split_dir = self.output_dir / split
-            if split_dir.exists():
-                shutil.rmtree(split_dir)
-
     @staticmethod
     def _deduplicate_dataset(dataset: Dataset) -> Dataset:
         if len(dataset) == 0:
@@ -399,29 +383,11 @@ class ReferencesPipeline(BasePipeline):
 
         frame = cast("pl.DataFrame", dataset.to_polars())
         deduplicated = frame.unique(subset=["keywords"], keep="first", maintain_order=True)
-        deduplicated = deduplicated.with_row_index("id").select(["id", "keywords", "references", "scores"])
+        deduplicated = deduplicated.drop("id").with_row_index("id").select(["id", "keywords", "references", "scores"])
 
         return Dataset.from_polars(deduplicated)
 
-    def _write_split_dataset(self, split: str, dataset: Dataset) -> None:
-        split_dir = self.output_dir / split
-        split_dir.mkdir(parents=True, exist_ok=True)
-        for part in split_dir.glob("part-*.parquet"):
-            part.unlink()
-
-        n_shards = math.ceil(len(dataset) / self.config.shard_size)
-        for shard_index in range(n_shards):
-            shard = dataset.shard(num_shards=n_shards, index=shard_index, contiguous=True)
-            table = pa.Table.from_pydict(shard[:], schema=self.schema)
-            pq.write_table(
-                table,
-                split_dir / f"part-{shard_index:04d}.parquet",
-                compression="zstd",
-                use_content_defined_chunking=True,
-                write_page_index=True,
-            )
-
-    def _split_dataset(self, dataset: Dataset) -> dict[str, Dataset]:
+    def _train_test_split(self, dataset: Dataset) -> dict[str, Dataset]:
         if len(dataset) == 0:
             return dict.fromkeys(_SPLITS, dataset)
 
@@ -445,21 +411,36 @@ class ReferencesPipeline(BasePipeline):
             "test": test_dataset,
         }
 
-    def _train_test_split(self) -> None:
+    def _write_split_dataset(self, split: str, dataset: Dataset) -> None:
+        split_dir = self.root_dir / split
+        split_dir.mkdir(parents=True, exist_ok=True)
+
+        for part in split_dir.glob("part-*.parquet"):
+            part.unlink()
+
+        n_shards = math.ceil(len(dataset) / self.config.shard_size)
+        for shard_index in range(n_shards):
+            shard = dataset.shard(num_shards=n_shards, index=shard_index, contiguous=True)
+            table = pa.Table.from_pydict(shard[:], schema=self.schema)
+            pq.write_table(
+                table,
+                split_dir / f"part-{shard_index:04d}.parquet",
+                compression="zstd",
+                use_content_defined_chunking=True,
+                write_page_index=True,
+            )
+
+    def train_test_split(self) -> None:
         dataset = load_dataset(
             "parquet",
             data_dir=str(self.output_dir),
             split="train",
-            cache_dir=str(self.output_dir / ".hf_cache"),
         )
         dataset = self._deduplicate_dataset(dataset)
-        split_datasets = self._split_dataset(dataset)
+        split_datasets = self._train_test_split(dataset)
 
         for split, split_dataset in split_datasets.items():
             self._write_split_dataset(split=split, dataset=split_dataset)
-
-        for part in self.output_dir.glob("part-*.parquet"):
-            part.unlink()
 
     async def run(
         self,
@@ -467,12 +448,8 @@ class ReferencesPipeline(BasePipeline):
         embeddings: Dataset,
         jokes: Dataset,
         resume: bool = False,
-    ) -> Path:
+    ) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-
-        if resume and self._is_split():
-            return self.output_dir
-
         self.next_part_index = self._get_next_part_index()
 
         keywords_frame = cast("pl.DataFrame", keywords.to_polars())
@@ -480,12 +457,7 @@ class ReferencesPipeline(BasePipeline):
         joined_frame = jokes_frame.join(keywords_frame, on="id", how="inner").select(["id", "text", "keywords"])
         dataset = Dataset.from_polars(joined_frame)
 
-        if resume:
-            seen_ids = self._get_seen_ids()
-            dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
-        elif self.next_part_index > 0 or self._is_split():
-            self._clear_outputs()
-            self.next_part_index = 0
+        dataset = self._check_progress(dataset, resume)
 
         dataset = dataset.batch(self.config.input_batch_size)
 
@@ -527,44 +499,37 @@ class ReferencesPipeline(BasePipeline):
 
         self._flush_buffer(write_buffer)
 
-        self._train_test_split()
-
         logger.info(
             "run.done",
             model=self.config.model,
             output_dir=str(self.output_dir),
             top_k=self.config.top_k,
         )
-        return self.output_dir
 
     def build(
         self,
-        *,
         jokes_split: str = "train",
         embeddings_split: str = "train",
         keywords_split: str = "train",
         resume: bool = True,
-    ) -> Path:
-        jokes_path = DATA_DIR / config.jokes.data_filename
-        if not jokes_path.exists():
-            jokes_path = JokesPipeline().build()
+    ) -> None:
+        jokes_dir = DATA_DIR / config.jokes.hf_config_name
+        if not jokes_dir.exists():
+            JokesPipeline().build()
 
         embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
         if not embeddings_dir.exists():
-            embeddings_dir = EmbeddingsPipeline().build(split=embeddings_split, resume=True)
+            EmbeddingsPipeline().build(split=embeddings_split, resume=True)
 
         keywords_dir = DATA_DIR / config.keywords.hf_config_name
         if not keywords_dir.exists():
-            keywords_dir = KeywordsPipeline().build(
-                jokes_split=jokes_split,
-                embeddings_split=embeddings_split,
-                resume=True,
-            )
+            KeywordsPipeline().build(jokes_split=jokes_split, embeddings_split=embeddings_split, resume=True)
 
-        jokes = load_dataset("parquet", data_files=str(jokes_path), split=jokes_split)
+        jokes = load_dataset("parquet", data_dir=str(jokes_dir), split=jokes_split)
         embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split=embeddings_split)
         keywords = load_dataset("parquet", data_dir=str(keywords_dir), split=keywords_split)
-        output_dir = asyncio.run(
+
+        asyncio.run(
             self.run(
                 keywords=keywords,
                 embeddings=embeddings,
@@ -572,11 +537,13 @@ class ReferencesPipeline(BasePipeline):
                 resume=resume,
             )
         )
+
+        self.train_test_split()
+
         logger.info(
             "build.done",
-            output_dir=str(output_dir),
+            output_dir=str(self.output_dir),
         )
-        return output_dir
 
     def publish(
         self,
@@ -584,15 +551,15 @@ class ReferencesPipeline(BasePipeline):
         config_name: str = config.references.hf_config_name,
         split: str = "train",
         private: bool = False,
-    ) -> tuple[str, str]:
-        output_dir = self.output_dir
-        if not output_dir.exists():
-            output_dir = self.build()
+    ) -> None:
+        if not self.output_dir.exists():
+            self.build()
 
         data_files = {
-            "train": str(output_dir / "train" / "part-*.parquet"),
-            "validation": str(output_dir / "validation" / "part-*.parquet"),
-            "test": str(output_dir / "test" / "part-*.parquet"),
+            "full": str(self.output_dir / "part-*.parquet"),
+            "train": str(self.root_dir / "train" / "part-*.parquet"),
+            "validation": str(self.root_dir / "validation" / "part-*.parquet"),
+            "test": str(self.root_dir / "test" / "part-*.parquet"),
         }
         dataset = load_dataset("parquet", data_files=data_files, split=split)
         api = HfApi(token=settings.HF_TOKEN)
@@ -607,28 +574,27 @@ class ReferencesPipeline(BasePipeline):
         logger.info(
             "publish.done",
             repo_id=repo_id,
-            output_dir=str(output_dir),
+            output_dir=str(self.output_dir),
             config_name=config_name,
             split=split,
         )
-        return repo_id, config_name
 
 
 def main() -> None:
     pipeline = ReferencesPipeline()
-    output_dir = pipeline.build(
+    pipeline.build(
         jokes_split="train",
         embeddings_split="train",
         keywords_split="train[:1000]",
         resume=False,
     )
-    repo_id, config_name = pipeline.publish()
-    print(
-        {
-            "references_dir": str(output_dir),
-            "repo_id": repo_id,
-            "config_name": config_name,
-        }
+    pipeline.publish()
+
+    logger.info(
+        "main.done",
+        references_dir=str(pipeline.output_dir),
+        repo_id=settings.HF_DATASET_REPO_ID,
+        config_name=pipeline.config.hf_config_name,
     )
 
 

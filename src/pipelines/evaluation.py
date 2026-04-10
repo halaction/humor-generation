@@ -8,10 +8,10 @@ import numpy as np
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
+from datasets import Dataset, concatenate_datasets, load_dataset
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
-from datasets import Dataset, concatenate_datasets, load_dataset
 from src.config import EvaluationConfig, config
 from src.logging import get_logger
 from src.models import EvaluationCandidate, EvaluationJudgeDecision, EvaluationOutputs, EvaluationPair
@@ -31,10 +31,8 @@ class EvaluationPipeline(BasePipeline):
         client: AsyncOpenAI | None = None,
     ) -> None:
         self.config = pipeline_config or config.evaluation
-        self.root_dir = output_dir or DATA_DIR / self.config.hf_config_name
-        self.evaluation_dir = self.root_dir / "evaluation"
-        self.leaderboard_dir = self.root_dir / "leaderboard"
-        self.output_dir = self.evaluation_dir
+        self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
+        self.leaderboard_dir = DATA_DIR / "leaderboard"
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
@@ -233,7 +231,7 @@ class EvaluationPipeline(BasePipeline):
 
     def _read_evaluation_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for path in sorted(self.evaluation_dir.glob("part-*.parquet")):
+        for path in sorted(self.output_dir.glob("part-*.parquet")):
             rows.extend(pq.read_table(path).to_pylist())
         return rows
 
@@ -248,7 +246,7 @@ class EvaluationPipeline(BasePipeline):
         for start in range(0, len(rows), self.config.shard_size):
             chunk = rows[start : start + self.config.shard_size]
             table = pa.Table.from_pylist(chunk, schema=self.schema)
-            path = self.evaluation_dir / f"part-{self.next_part_index:04d}.parquet"
+            path = self.output_dir / f"part-{self.next_part_index:04d}.parquet"
             pq.write_table(
                 table,
                 where=str(path),
@@ -347,7 +345,9 @@ class EvaluationPipeline(BasePipeline):
         msg = "Unexpected judge retry branch."
         raise RuntimeError(msg)
 
-    def _write_leaderboard(self, rows: list[dict[str, Any]]) -> None:
+    def calculate_leaderboard(self, rows: list[dict[str, Any]]) -> None:
+        self.leaderboard_dir.mkdir(parents=True, exist_ok=True)
+
         if not rows:
             self._unlink_parts(self.leaderboard_dir)
             return
@@ -404,10 +404,8 @@ class EvaluationPipeline(BasePipeline):
         table = pa.Table.from_pylist(leaderboard_rows, schema=self.leaderboard_schema)
         pq.write_table(table, self.leaderboard_dir / "part-0000.parquet", compression="zstd")
 
-    async def run(self, candidates: Dataset, resume: bool = False) -> Path:
-        self.root_dir.mkdir(parents=True, exist_ok=True)
-        self.evaluation_dir.mkdir(parents=True, exist_ok=True)
-        self.leaderboard_dir.mkdir(parents=True, exist_ok=True)
+    async def run(self, candidates: Dataset, resume: bool = False) -> None:
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         candidates_per_reference = self._collect_candidates_per_reference(candidates)
         pairs = self._build_pairs(candidates_per_reference)
@@ -415,10 +413,10 @@ class EvaluationPipeline(BasePipeline):
         retained_rows = self._filter_rows_for_resume(existing_rows=existing_rows, pairs=pairs) if resume else []
 
         if not resume:
-            self._unlink_parts(self.evaluation_dir)
+            self._unlink_parts(self.output_dir)
             self.next_part_index = 0
         elif len(existing_rows) != len(retained_rows):
-            self._unlink_parts(self.evaluation_dir)
+            self._unlink_parts(self.output_dir)
             self.next_part_index = 0
             self._write_rows_to_evaluation_parts(retained_rows)
         else:
@@ -447,21 +445,19 @@ class EvaluationPipeline(BasePipeline):
 
         self._flush_buffer(write_buffer)
         all_rows = self._read_evaluation_rows()
-        self._write_leaderboard(rows=all_rows)
+        self.calculate_leaderboard(rows=all_rows)
         logger.info(
             "run.done",
-            output_dir=str(self.root_dir),
+            output_dir=str(self.output_dir),
             pair_count=len(all_rows),
         )
-        return self.root_dir
 
     def build(
         self,
-        *,
         candidate_paths: list[Path],
         split: str = "train",
         resume: bool = True,
-    ) -> Path:
+    ) -> None:
         datasets = []
         for path in candidate_paths:
             dataset = load_dataset(
@@ -471,18 +467,20 @@ class EvaluationPipeline(BasePipeline):
             )
             datasets.append(dataset)
         candidates = concatenate_datasets(datasets)
-        output_dir = asyncio.run(self.run(candidates=candidates, resume=resume))
-        logger.info("build.done", output_dir=str(output_dir))
-        return output_dir
+        asyncio.run(self.run(candidates=candidates, resume=resume))
+
+        logger.info("build.done", output_dir=str(self.output_dir))
 
 
 def main() -> None:
     pipeline = EvaluationPipeline()
-    candidates_root = DATA_DIR / config.candidates.hf_config_name
-    model_dirs = [path for path in candidates_root.iterdir() if path.is_dir()] if candidates_root.exists() else []
+    candidates_dir = DATA_DIR / config.candidates.hf_config_name
+
+    model_dirs = [path for path in candidates_dir.iterdir() if path.is_dir()] if candidates_dir.exists() else []
     if not model_dirs:
-        msg = f"Expected per-model candidate directories under {candidates_root}"
+        msg = f"Expected per-model candidate directories under {candidates_dir}"
         raise FileNotFoundError(msg)
+
     output_dir = pipeline.build(candidate_paths=model_dirs, split="test", resume=False)
     print({"evaluation_dir": str(output_dir)})
 

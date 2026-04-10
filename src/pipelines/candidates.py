@@ -1,16 +1,15 @@
-import asyncio
-import json
 import argparse
+import asyncio
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, cast
 
 import pyarrow as pa
+from datasets import Dataset, load_dataset
 from huggingface_hub import HfApi
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
-from datasets import Dataset, load_dataset
 from src.config import CandidatesConfig, config
 from src.logging import get_logger
 from src.models import CandidateOutput
@@ -33,8 +32,8 @@ class CandidatesPipeline(BasePipeline):
         api_key: str | None = None,
     ) -> None:
         self.config = pipeline_config or config.candidates
-        self.output_root_dir = output_dir or DATA_DIR / self.config.hf_config_name
-        self.output_dir = self.output_root_dir
+        self.root_dir = output_dir or DATA_DIR / self.config.hf_config_name
+        self.output_dir = self.root_dir
         self.client = client or AsyncOpenAI(
             base_url=base_url or settings.OPENAI_BASE_URL,
             api_key=api_key or settings.OPENAI_API_KEY,
@@ -99,17 +98,11 @@ class CandidatesPipeline(BasePipeline):
         references: Dataset,
         model: str,
         resume: bool = False,
-    ) -> Path:
+    ) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.next_part_index = self._get_next_part_index()
 
-        dataset = references
-        if resume:
-            seen_ids = self._get_seen_ids()
-            dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
-        elif self.next_part_index > 0:
-            for path in self.output_dir.glob("part-*.parquet"):
-                path.unlink()
+        dataset = self._check_progress(references, resume)
 
         write_buffer: list[CandidateOutput] = []
         semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
@@ -140,56 +133,52 @@ class CandidatesPipeline(BasePipeline):
             )
 
         self._flush_buffer(write_buffer)
+
         logger.info(
             "run.done",
             output_dir=str(self.output_dir),
             model=model,
         )
-        return self.output_dir
 
     def build(
         self,
-        *,
-        split: str,
         model: str,
-        references_dir: Path | None = None,
+        split: str,
         resume: bool = True,
-    ) -> Path:
-        references_root = references_dir or DATA_DIR / config.references.hf_config_name
-        if not references_root.exists():
-            references_root = ReferencesPipeline().build(resume=True)
+    ) -> None:
+        references_dir = DATA_DIR / config.references.hf_config_name
+        if not references_dir.exists():
+            ReferencesPipeline().build()
 
         references = load_dataset(
             "parquet",
-            data_files={split: str(references_root / split / "part-*.parquet")},
+            data_dir=str(references_dir),
             split=split,
         )
-        self.output_dir = self.output_root_dir / model / split
-        output_dir = asyncio.run(
+        self.output_dir = self.root_dir / model / split
+        asyncio.run(
             self.run(
                 references=references,
                 model=model,
                 resume=resume,
             )
         )
-        logger.info("build.done", output_dir=str(output_dir))
-        return output_dir
+        logger.info("build.done", output_dir=str(self.output_dir))
 
     def publish(
         self,
         repo_id: str = settings.HF_DATASET_REPO_ID,
+        config_name: str | None = None,
         model: str = "baseline",
         split: str = "test",
-        config_name: str | None = None,
         private: bool = False,
-    ) -> tuple[str, str]:
-        resolved_config_name = config_name or model
-        model_root = self.output_root_dir / model
-        split_dir = model_root / split
+    ) -> None:
+        config_name = f"{config_name}/{model}"
+        split_dir = self.root_dir / model / split
 
         has_split_data = split_dir.exists() and any(split_dir.glob("part-*.parquet"))
         if not has_split_data:
-            msg = f"Expected candidate parquet files for split={split!r} under {model_root}"
+            msg = f"Expected candidate parquet files for split={split!r} under {split_dir}"
             raise FileNotFoundError(msg)
 
         data_files = {split: str(split_dir / "part-*.parquet")}
@@ -199,7 +188,7 @@ class CandidatesPipeline(BasePipeline):
         api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
         dataset.push_to_hub(
             repo_id=repo_id,
-            config_name=resolved_config_name,
+            config_name=config_name,
             token=settings.HF_TOKEN,
             private=private,
             split=split,
@@ -207,42 +196,35 @@ class CandidatesPipeline(BasePipeline):
         logger.info(
             "publish.done",
             repo_id=repo_id,
+            config_name=config_name,
             model=model,
-            config_name=resolved_config_name,
             split=split,
-            output_dir=str(model_root),
+            output_dir=str(self.output_dir),
         )
-        return repo_id, resolved_config_name
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run candidate generation.")
     parser.add_argument("--model", required=True)
     parser.add_argument("--split", required=True)
-    parser.add_argument("--references-dir", default=None)
-    parser.add_argument("--output-dir", default=None)
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
 
-    output_dir = Path(args.output_dir) if args.output_dir else None
-    references_dir = Path(args.references_dir) if args.references_dir else None
-
-    pipeline = CandidatesPipeline(output_dir=output_dir)
-    output_dir = pipeline.build(
-        split=args.split,
+    pipeline = CandidatesPipeline()
+    pipeline.build(
         model=args.model,
-        references_dir=references_dir,
+        split=args.split,
         resume=args.resume,
     )
-    repo_id, config_name = pipeline.publish(model=args.model, split=args.split)
-    print(
-        {
-            "candidates_dir": str(output_dir),
-            "repo_id": repo_id,
-            "config_name": config_name,
-            "model": args.model,
-            "split": args.split,
-        }
+    pipeline.publish(model=args.model, split=args.split)
+
+    logger.info(
+        "main.done",
+        candidates_dir=str(pipeline.output_dir),
+        repo_id=settings.HF_DATASET_REPO_ID,
+        config_name=pipeline.config.hf_config_name,
+        model=args.model,
+        split=args.split,
     )
 
 

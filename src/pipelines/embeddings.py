@@ -4,11 +4,11 @@ from pathlib import Path
 from typing import Any, cast
 
 import pyarrow as pa
+from datasets import Dataset, load_dataset
 from huggingface_hub import HfApi
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
-from datasets import Dataset, load_dataset
 from src.config import EmbeddingsConfig, config
 from src.logging import get_logger
 from src.models import EmbeddingsInputs, EmbeddingsOutputs
@@ -94,18 +94,11 @@ class EmbeddingsPipeline(BasePipeline):
         self,
         jokes: Dataset,
         resume: bool = False,
-    ) -> Path:
+    ) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.next_part_index = self._get_next_part_index()
 
-        dataset = jokes
-
-        if resume:
-            seen_ids = self._get_seen_ids()
-            dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
-        elif self.next_part_index > 0:
-            for file in self.output_dir.glob("part-*.parquet"):
-                file.unlink()
+        dataset = self._check_progress(jokes, resume)
 
         dataset = dataset.batch(self.config.batch_size)
 
@@ -139,26 +132,23 @@ class EmbeddingsPipeline(BasePipeline):
             model=self.config.model,
             output_dir=str(self.output_dir),
         )
-        return self.output_dir
 
     def build(
         self,
-        *,
         split: str = "train",
         resume: bool = True,
-    ) -> Path:
-        jokes_path = DATA_DIR / config.jokes.data_filename
-        if not jokes_path.exists():
-            jokes_path = JokesPipeline().build()
+    ) -> None:
+        jokes_dir = DATA_DIR / config.jokes.hf_config_name
+        if not jokes_dir.exists():
+            JokesPipeline().build()
 
-        jokes = load_dataset("parquet", data_files=str(jokes_path), split=split)
-        output_dir = asyncio.run(self.run(jokes=jokes, resume=resume))
+        jokes = load_dataset("parquet", data_dir=str(jokes_dir), split=split)
+        asyncio.run(self.run(jokes=jokes, resume=resume))
         logger.info(
             "build.done",
-            jokes_data_path=str(jokes_path),
-            output_dir=str(output_dir),
+            jokes_dir=str(jokes_dir),
+            output_dir=str(self.output_dir),
         )
-        return output_dir
 
     def publish(
         self,
@@ -166,12 +156,11 @@ class EmbeddingsPipeline(BasePipeline):
         config_name: str = config.embeddings.hf_config_name,
         split: str = "train",
         private: bool = False,
-    ) -> Path:
-        output_dir = self.output_dir
-        if not output_dir.exists():
-            output_dir = self.build()
+    ) -> None:
+        if not self.output_dir.exists():
+            self.build()
 
-        dataset = load_dataset("parquet", data_dir=str(output_dir), split=split)
+        dataset = load_dataset("parquet", data_dir=str(self.output_dir), split=split)
         api = HfApi(token=settings.HF_TOKEN)
         api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
         dataset.push_to_hub(
@@ -184,23 +173,21 @@ class EmbeddingsPipeline(BasePipeline):
             "publish.done",
             repo_id=repo_id,
             config_name=config_name,
-            output_dir=str(output_dir),
+            output_dir=str(self.output_dir),
             split=split,
         )
-        return output_dir
 
 
 def main() -> None:
     pipeline = EmbeddingsPipeline()
-    output_dir = pipeline.build(split="train[:10000]", resume=True)
-    published_dir = pipeline.publish()
-    print(
-        {
-            "embeddings_dir": str(output_dir),
-            "published_dir": str(published_dir),
-            "repo_id": settings.HF_DATASET_REPO_ID,
-            "config_name": config.embeddings.hf_config_name,
-        }
+    pipeline.build(split="train[:10005]", resume=True)
+    pipeline.publish()
+
+    logger.info(
+        "main.done",
+        embeddings_dir=str(pipeline.output_dir),
+        repo_id=settings.HF_DATASET_REPO_ID,
+        config_name=pipeline.config.hf_config_name,
     )
 
 

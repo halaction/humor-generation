@@ -33,7 +33,6 @@ class _MockEmbeddingsAPI:
 
     async def create(
         self,
-        *,
         model: str,
         input: list[str],
         dimensions: int,
@@ -219,6 +218,7 @@ def test_references_pipeline_deduplicates_keyword_groups_across_jokes(tmp_path: 
     by_keywords = {tuple(cast("list[str]", row["keywords"])): row for row in rows}
 
     assert len(rows) == 7
+    assert sorted(int(row["id"]) for row in rows) == list(range(7))
     assert tuple(["cat"]) in by_keywords
     assert tuple(["park"]) in by_keywords
     assert by_keywords[("cat",)]["references"] == ["cat joke"]

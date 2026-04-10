@@ -30,7 +30,6 @@ class _MockChatCompletions:
 
     async def create(
         self,
-        *,
         model: str,
         temperature: float,
         max_completion_tokens: int,

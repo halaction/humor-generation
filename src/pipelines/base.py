@@ -1,6 +1,6 @@
 import asyncio
 import re
-from abc import ABC, abstractmethod
+from abc import ABC
 from pathlib import Path
 from typing import Generic, ParamSpec, TypeVar
 
@@ -8,6 +8,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
+from datasets import Dataset
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -45,6 +46,16 @@ class BasePipeline(ABC, Generic[P, T]):
         array = np.asarray(dataset.to_table(columns=["id"]).column("id").to_numpy(), dtype=np.int64)
         seen_ids = np.unique(array).tolist()
         return {int(item) for item in seen_ids}
+
+    def _check_progress(self, dataset: Dataset, resume: bool) -> Dataset:
+        if resume:
+            seen_ids = self._get_seen_ids()
+            dataset = dataset.filter(lambda item: item["id"] not in seen_ids)
+        elif self.next_part_index > 0:
+            for file in self.output_dir.glob("part-*.parquet"):
+                file.unlink()
+
+        return dataset
 
     def _get_table(self, write_buffer: list[T]) -> pa.Table:
         raise NotImplementedError
@@ -87,6 +98,11 @@ class BasePipeline(ABC, Generic[P, T]):
             if self._check_buffer_size(write_buffer):
                 self._flush_buffer(write_buffer)
 
-    @abstractmethod
-    async def run(self, *args: P.args, **kwargs: P.kwargs) -> Path:
+    async def run(self, *args: P.args, **kwargs: P.kwargs) -> None:
+        raise NotImplementedError
+
+    def build(self, *args: P.args, **kwargs: P.kwargs) -> None:
+        raise NotImplementedError
+
+    def publish(self, *args: P.args, **kwargs: P.kwargs) -> None:
         raise NotImplementedError
