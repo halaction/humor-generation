@@ -1,6 +1,6 @@
 # Fdb version 4
-["pdflatex"] 1775854496.0373 "/Users/halaction/Workspace/humor-generation/docs/paper/main.tex" "main.pdf" "main" 1775854496.14763 2
-  "/Users/halaction/Workspace/humor-generation/docs/paper/main.tex" 1775854475.07349 68771 f827500521af00dba624e9a62af92945 ""
+["pdflatex"] 1775858747.02454 "/Users/halaction/Workspace/humor-generation/docs/paper/main.tex" "main.pdf" "main" 1775858747.14707 2
+  "/Users/halaction/Workspace/humor-generation/docs/paper/main.tex" 1775858746.5931 69966 081f79becbcbde5155b27ecd999e867a ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/map/fontname/texfonts.map" 1741388039 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/public/cm/cmr12.tfm" 1741388039 1288 655e228510b4c2a1abe905c368440826 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/tex/generic/iftex/iftex.sty" 1741388039 7984 7dbb9280f03c0a315425f1b4f35d43ee ""
@@ -16,8 +16,8 @@
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/tex/latex/l3packages/xparse/xparse.sty" 1741388039 9783 ab4bee47700c04aadedb8da27591b0ab ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/web2c/texmf.cnf" 1741388039 42151 79f67285bdd95beca4d137b380b4b9e5 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-var/web2c/pdftex/pdflatex.fmt" 1741388039 3346139 1cc6d170340807f4737e090b298f03d2 ""
-  "main.aux" 1775854496.03679 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
-  "main.tex" 1775854475.07349 68771 f827500521af00dba624e9a62af92945 ""
+  "main.aux" 1775858747.02394 32 3985256e7290058c681f74d7a3565a19 "pdflatex"
+  "main.tex" 1775858746.5931 69966 081f79becbcbde5155b27ecd999e867a ""
   (generated)
   "main.aux"
   "main.log"

@@ -99,21 +99,30 @@ The literature also indicates that humor should not be treated as a scalar prope
 
 \section{Recent work on humor generation and evaluation}
 
+% TODO: This section is too formulaic, try to make it more smooth. It is explain the paper + this is important because... switch it up a little
+
 % TODO: This paper is not sufficiently covered, it is very hard to understand what it is about and why it is significant, too broad
 The recent generation of humor papers is notable for moving beyond simple pun generation toward richer creative tasks. \citet{Zhang2024HumorAI} introduce a large-scale preference collection for cartoon captioning and show that even strong systems remain below human performance. Their study is important for the present thesis for two reasons. First, it confirms that humor datasets require large-scale judgment collection to obtain meaningful comparisons. Second, it shows that direct preference optimization is attractive in principle, but difficult in practice because humor judgments are highly variable.
 
+% TODO: Discuss this and other papers more in-depth, not it is not clear what training procedure looked like, and which dimensions we are talking about. Remember, people who are reading this are not familiar with such a rare topic
 \citet{Sakabe2025} analyze large language models in the Oogiri setting, where humor is evaluated along multiple dimensions rather than a single funniness score. Their results suggest that language models can sometimes imitate the form of humor while missing deeper social and contextual understanding. This matters for the thesis because it warns against assuming that an LLM judge is an adequate substitute for human preference in all cases. A model can produce or reward humor that is internally plausible for the model distribution while being weak or unnatural for human readers.
 
+% TODO: Logic is really messy here, reformulate. Also, temptation is a very appropriate word for a research paper
 \citet{Kim2025} argue that effective AI humor generation requires a combination of cognitive, social, and creative skills. Their framing is useful because it connects humor quality to intermediate competencies rather than to isolated outputs alone. If humor indeed depends on structured skill composition, then the temptation to use multi-step generation pipelines becomes understandable.
 
+% TODO: A little more details
 That temptation is visible in agentic and theory-guided systems. \citet{Tikhonov2024} show that multistep reasoning can improve humor generation by explicitly separating association, narrative construction, and refinement. \citet{ZhangJ2025} extend this idea to multimodal humor and argue that structured reasoning chains grounded in humor theory improve both interpretability and preference outcomes. The common message is consistent: humor generation benefits when the model is pushed to reason over alternatives instead of producing the first likely continuation.
 
 At the same time, these works expose a limitation. Their gains come from carefully designed architectures that encode a preferred reasoning script. Such systems are powerful demonstrations, but they do not answer a more general question: can the model learn \emph{how} to reason for humor without the reasoning path being fully prescribed in advance? That question motivates the shift from agentic inference toward post-training.
 
+% TODO: Recent work + SFT + RLHF sections are a little bit overlapping, maybe break it down further. Recent work -> humor detection / evaluation and its findings; then we go into different approaches: earlier models, sft, rlhf, agentic. And in each of them there are tried approached and their analysis and critique
+
 \section{Why supervised fine-tuning is not enough}
 
+% TODO: Many words, not much said. The point is not only imitation, but also memorization, both are present. Imitation is style without funniness, memorization is recycling the jokes from the training data. Provide the info / examples from the references before making such claims. 
 The most straightforward way to improve humor generation is supervised fine-tuning on a large joke corpus. This is also the most misleading. Humor datasets are rich in repeated themes, familiar wordplay, and common rhetorical forms. An SFT objective rewards the model for matching observed text tokens, not for searching for new but appropriate punchlines. In other words, SFT encourages imitation of local surface regularities, which is useful for style retention but insufficient for creative generalization.
 
+% TODO: Explaining the paper with its title is a red flag, read it first. 
 Recent post-training work outside humor strengthens this concern. \citet{Chu2025} compare SFT and reinforcement learning across a range of post-training settings and conclude that the two procedures optimize different behaviors. Their core finding is summarized by the title of the paper itself: SFT tends to memorize, whereas RL tends to generalize. For humor generation, this contrast is especially consequential. A memorizing model can easily learn common joke shells such as ``X walked into a bar'' or ``my favorite Y is Z,'' yet still fail to respond creatively to weak or unfamiliar prompts.
 
 The issue is not just repetition, but mode collapse toward safe forms. In humor, safe often means unfunny. A model that repeatedly chooses the least risky lexical pattern may produce text that looks joke-like while never achieving genuine surprise. This is one reason why evaluating humor with reference overlap or next-token likelihood alone is inadequate.
