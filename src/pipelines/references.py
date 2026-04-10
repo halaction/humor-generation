@@ -549,7 +549,6 @@ class ReferencesPipeline(BasePipeline):
         self,
         repo_id: str = settings.HF_DATASET_REPO_ID,
         config_name: str = config.references.hf_config_name,
-        split: str = "train",
         private: bool = False,
     ) -> None:
         if not self.output_dir.exists():
@@ -561,7 +560,7 @@ class ReferencesPipeline(BasePipeline):
             "validation": str(self.root_dir / "validation" / "part-*.parquet"),
             "test": str(self.root_dir / "test" / "part-*.parquet"),
         }
-        dataset = load_dataset("parquet", data_files=data_files, split=split)
+        dataset = load_dataset("parquet", data_files=data_files)
         api = HfApi(token=settings.HF_TOKEN)
         api.create_repo(repo_id=repo_id, repo_type="dataset", private=private, exist_ok=True)
         dataset.push_to_hub(
@@ -569,14 +568,12 @@ class ReferencesPipeline(BasePipeline):
             config_name=config_name,
             token=settings.HF_TOKEN,
             private=private,
-            split=split,
         )
         logger.info(
             "publish.done",
             repo_id=repo_id,
             output_dir=str(self.output_dir),
             config_name=config_name,
-            split=split,
         )
 
 
