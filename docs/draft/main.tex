@@ -1,8 +1,7 @@
 \documentclass[14pt,a4paper]{extreport}
 
-\usepackage[a4paper,left=30mm,right=15mm,top=20mm,bottom=20mm]{geometry}
-\usepackage{fontspec}
-\setmainfont{Times New Roman}
+\usepackage[a4paper,left=30mm,right=10mm,top=20mm,bottom=20mm]{geometry}
+\usepackage[T1]{fontenc}
 \usepackage[english]{babel}
 \usepackage{setspace}
 \onehalfspacing
@@ -14,6 +13,7 @@
 \usepackage{enumitem}
 \usepackage{hyperref}
 \usepackage{natbib}
+\usepackage[nottoc]{tocbibind}
 \usepackage{titlesec}
 
 \hypersetup{
@@ -85,89 +85,59 @@ The structure of the thesis follows the standard university requirements. Chapte
 
 \chapter{Literature Review}
 
-\section{Computational humor as a research problem}
+\section{Computational humor as a difficult NLP problem}
 
-Humor occupies a peculiar position in natural language processing. It is simultaneously a linguistic, cognitive, and social phenomenon. A successful joke often depends on lexical ambiguity, world knowledge, expectation violation, narrative timing, shared cultural assumptions, and audience-specific norms. Because of this, humor generation is a stronger test of language understanding than tasks where surface fluency alone is rewarded. In their recent overview, \citet{Loakman2025} describe computational humor as a field that has grown rapidly with the spread of large language models, but they also emphasize that many systems still confuse textual well-formedness with genuine humorous effect.
+Humor has long been treated as a hard case for natural language processing because successful jokes depend on more than grammatical well-formedness. They also depend on incongruity, shared knowledge, timing, and audience expectations. Early reviews already described humor as one of the more complex targets for artificial intelligence, noting that implemented systems were largely confined to narrow punning mechanisms and that broader humor processing would require substantial world knowledge and reasoning \citep{ritchie2001current}. Two later surveys reach a similar conclusion from different angles. \citet{amin2020survey} show that computational humor generation has historically traded breadth for control: template- and rule-based systems could operationalize identifiable humorous mechanisms, but only within highly restricted domains. More recently, \citet{Loakman2025} and \citet{lemmens2026computational} argue that the large-language-model era has broadened coverage while leaving the central problem unresolved, since fluent text is not equivalent to humor that readers actually find funny.
 
-% TODO: Find sources of these earlier systems, or at least refer to one of the surveys.
-Historically, humor generation systems often relied on templates, pun dictionaries, handcrafted transformations, or narrow theoretical assumptions about incongruity. These approaches had a clear advantage: they encoded at least one identifiable humorous mechanism. Their disadvantage was low coverage and poor adaptability. Large language models invert this trade-off. They offer broad coverage and excellent fluency, but they often produce humor that is bland, derivative, or insufficiently surprising. This shift from low-fluency/high-control to high-fluency/low-control is central to the present thesis.
+A further difficulty is theoretical pluralism. Humor theory offers several recurring explanatory families---most notably incongruity-based accounts, but also superiority and relief traditions---yet no single framework exhausts the phenomenon. This matters computationally because different joke types rely on different mechanisms. \citet{kao2016computational}, for instance, formalize incongruity in puns as ambiguity plus distinctiveness and show that these variables predict human funniness judgments. Their work is important not only because it operationalizes a classical humor theory, but also because it illustrates the limits of narrow formalization: a model that explains homophonic puns does not thereby explain narrative jokes, topical jokes, or socially situated humor. Recent theory-driven work in humor detection starts from the same premise, namely that no single comprehensive humor theory is sufficient and that computational models typically operationalize only fragments of humor \citep{demarez2024thinc}. For the present thesis, the consequence is methodological: humor generation should be treated as a multi-mechanism creative task rather than as a single scalar attribute.
 
-% TODO: This is a literature review, where are the sources? 
-The literature also indicates that humor should not be treated as a scalar property. A text may satisfy the topic, use a recognizable humorous structure, and still fail in perceived funniness. Conversely, a joke can be funny but violate the intended prompt. For this reason, multi-dimensional evaluation is common in the most recent work. As will be discussed later, this has direct implications for both data construction and reward design.
+\section{From narrow generators to LLM-era humor generation}
 
-% TODO: Maybe add here a little about attempts at humor theories (list some of them with sources) - there is a multitude of them, but none can exhaust the subject, and they are rarely used in computational humor research, however there are some theory-guided attempts (like that paper on theory-guided agent). 
+Before the rise of large language models, humor generation systems were usually narrow by design. As summarized by \citet{amin2020survey}, earlier work often relied on hand-written templates, lexical resources, phonetic transformations, or tightly constrained generation procedures. These systems had an important advantage: they encoded at least one explicit humorous mechanism. Their disadvantage was low adaptability. They produced humor only under carefully chosen linguistic conditions and therefore did not scale well beyond punning, stock joke forms, or limited domains.
 
-\section{Recent work on humor generation and evaluation}
+Large language models invert that trade-off. They can produce open-ended humorous text over a far broader range of prompts, but fluency does not guarantee robust humor competence. This is visible in recent large-scale evaluations. \citet{Zhang2024HumorAI} introduce a multimodal cartoon-captioning benchmark built from more than 250 million human ratings over more than 2.2 million captions, and show that current fine-tuning methods remain limited on creative tasks; even strong systems such as GPT-4 and Claude remain below top human contestants. Humor-specific understanding studies point in the same direction. \citet{xu2024good} show that large language models exhibit what they call ``lazy pun generation,'' which is one reason why stronger evaluation metrics are needed for pun understanding. \citet{cocchieri2025you} construct a contamination-resistant humor benchmark and find that most language models still underperform humans on pun comprehension, resolution, and generation. Going beyond puns, \citet{loakman2025comparing} show that current models, including reasoning models, do not reliably explain all joke types, which highlights how much of the existing literature remains focused on relatively simple joke forms.
 
-% TODO: This section is too formulaic, try to make it more smooth. It is explain the paper + this is important because... switch it up a little
+Taken together, these studies suggest that current models are better at reproducing the local surface form of familiar jokes than at generalizing across humor mechanisms. This distinction is important for the present thesis. A system can be good at producing joke-like text without being good at humor in the stronger sense required by open-ended generation.
 
-% TODO: This paper is not sufficiently covered, it is very hard to understand what it is about and why it is significant, too broad
-The recent generation of humor papers is notable for moving beyond simple pun generation toward richer creative tasks. \citet{Zhang2024HumorAI} introduce a large-scale preference collection for cartoon captioning and show that even strong systems remain below human performance. Their study is important for the present thesis for two reasons. First, it confirms that humor datasets require large-scale judgment collection to obtain meaningful comparisons. Second, it shows that direct preference optimization is attractive in principle, but difficult in practice because humor judgments are highly variable.
+\section{Humor evaluation is multidimensional and judge-dependent}
 
-% TODO: Discuss this and other papers more in-depth, not it is not clear what training procedure looked like, and which dimensions we are talking about. Remember, people who are reading this are not familiar with such a rare topic
-\citet{Sakabe2025} analyze large language models in the Oogiri setting, where humor is evaluated along multiple dimensions rather than a single funniness score. Their results suggest that language models can sometimes imitate the form of humor while missing deeper social and contextual understanding. This matters for the thesis because it warns against assuming that an LLM judge is an adequate substitute for human preference in all cases. A model can produce or reward humor that is internally plausible for the model distribution while being weak or unnatural for human readers.
+Evaluation is a central difficulty in computational humor. Humor is subjective, but the problem is not only subjectivity in the colloquial sense. What counts as a good joke depends on audience, context, delivery, and the dimension being evaluated. Even dataset papers emphasize that humor varies across topic, time, and recipient, making it difficult to identify a single target variable \citep{weller2020rjokes}. For this reason, recent humor work increasingly avoids treating funniness as a single scalar judgment.
 
-% TODO: Logic is really messy here, reformulate. Also, temptation is a very appropriate word for a research paper
-\citet{Kim2025} argue that effective AI humor generation requires a combination of cognitive, social, and creative skills. Their framing is useful because it connects humor quality to intermediate competencies rather than to isolated outputs alone. If humor indeed depends on structured skill composition, then the temptation to use multi-step generation pipelines becomes understandable.
+The clearest example is \citet{Sakabe2025}, who evaluate Oogiri responses on six dimensions: novelty, clarity, relevance, intelligence, empathy, and overall funniness. Their results show that current language models generate responses between low- and mid-tier human performance, but they notably lag in empathy; the authors further argue that this deficit helps explain why model-based evaluation does not reproduce human humor assessment well. The significance of this result is twofold. First, it shows that humor quality is not reducible to ``is this funny?'' Second, it shows that human and model judgments may privilege different qualities.
 
-% TODO: A little more details
-That temptation is visible in agentic and theory-guided systems. \citet{Tikhonov2024} show that multistep reasoning can improve humor generation by explicitly separating association, narrative construction, and refinement. \citet{ZhangJ2025} extend this idea to multimodal humor and argue that structured reasoning chains grounded in humor theory improve both interpretability and preference outcomes. The common message is consistent: humor generation benefits when the model is pushed to reason over alternatives instead of producing the first likely continuation.
+A complementary perspective comes from \citet{winters2025evaluating}, who compare human comedians and GPT-4 in a live improvisational setting rather than in an offline text-only benchmark. Their study is valuable because it isolates a stronger comparison point: both humans and the model must respond rapidly to the same audience suggestions. Human jokes are still preferred slightly more often, but the margin is not overwhelming, and the design highlights how much delivery and situational context affect humor evaluation. This is a useful corrective to benchmark-only thinking. A text that performs well in static judging is not necessarily the text that works best in real comedic interaction.
 
-At the same time, these works expose a limitation. Their gains come from carefully designed architectures that encode a preferred reasoning script. Such systems are powerful demonstrations, but they do not answer a more general question: can the model learn \emph{how} to reason for humor without the reasoning path being fully prescribed in advance? That question motivates the shift from agentic inference toward post-training.
+These findings also clarify the role of LLM-as-a-judge methods. Structured evaluation frameworks such as \citet{Hashemi2024} are useful because they replace one-dimensional scoring with explicit rubrics and calibration. However, that paper also shows that raw LLM rubric judgments do not automatically align well with human ratings. For humor generation, this implies that LLM judges are best treated as measurement instruments with a limited domain of validity, not as transparent replacements for human preference.
 
-% TODO: Recent work + SFT + RLHF sections are a little bit overlapping, maybe break it down further. Recent work -> humor detection / evaluation and its findings; then we go into different approaches: earlier models, sft, rlhf, agentic. And in each of them there are tried approached and their analysis and critique
+\section{Reasoning and multi-stage generation for humor}
 
-\section{Why supervised fine-tuning is not enough}
+One of the most important shifts in recent humor-generation research is the move from one-shot continuation to explicit reasoning or staged creative search. At the prompting level, \citet{chen2023prompt} model humor generation through step-by-step comedy-writing instructions for GPT-3. \citet{zhong2024let} go further by arguing that standard chain-of-thought prompting is poorly matched to creative tasks, and propose a Leap-of-Thought paradigm for Oogiri-style humor generation that emphasizes associative jumps rather than strictly sequential decomposition.
 
-% TODO: Many words, not much said. The point is not only imitation, but also memorization, both are present. Imitation is style without funniness, memorization is recycling the jokes from the training data. Provide the info / examples from the references before making such claims. 
-The most straightforward way to improve humor generation is supervised fine-tuning on a large joke corpus. This is also the most misleading. Humor datasets are rich in repeated themes, familiar wordplay, and common rhetorical forms. An SFT objective rewards the model for matching observed text tokens, not for searching for new but appropriate punchlines. In other words, SFT encourages imitation of local surface regularities, which is useful for style retention but insufficient for creative generalization.
+More explicit generation systems strengthen this line of work. \citet{Tikhonov2024} reconstruct one-liner joke writing as a multistep process and report improvements over zero-shot GPT-4 and other baselines in human evaluation. \citet{Kim2025} frame humor generation as the combination of cognitive, social, and creative skills; in their meme-captioning study, skill-augmented systems substantially outperform basic large-language-model baselines and approach top-rated human captions for the target audience. In multimodal settings, \citet{ZhangJ2025} propose a theory-guided multi-stage reasoning framework intended to improve both interpretability and humor quality.
 
-% TODO: Explaining the paper with its title is a red flag, read it first. 
-Recent post-training work outside humor strengthens this concern. \citet{Chu2025} compare SFT and reinforcement learning across a range of post-training settings and conclude that the two procedures optimize different behaviors. Their core finding is summarized by the title of the paper itself: SFT tends to memorize, whereas RL tends to generalize. For humor generation, this contrast is especially consequential. A memorizing model can easily learn common joke shells such as ``X walked into a bar'' or ``my favorite Y is Z,'' yet still fail to respond creatively to weak or unfamiliar prompts.
+These papers are important because they collectively reject the assumption that humor is best produced by a single left-to-right continuation. Instead, they model humor generation as a search process over premises, associations, reframings, and audience-sensitive choices. At the same time, they share a limitation that is directly relevant to the present thesis: the structure of the reasoning process is hand-specified. The number of stages, the type of intermediate representations, and the order of operations are fixed by the researcher. Such systems are therefore strong demonstrations of the usefulness of reasoning, but weaker evidence that a model can learn for itself when and how to reason for humor.
 
-The issue is not just repetition, but mode collapse toward safe forms. In humor, safe often means unfunny. A model that repeatedly chooses the least risky lexical pattern may produce text that looks joke-like while never achieving genuine surprise. This is one reason why evaluating humor with reference overlap or next-token likelihood alone is inadequate.
+\section{Why standard post-training is a poor fit for humor}
 
-\section{RLHF, RLAIF, and their limitations for humor}
+The most straightforward route to improving humor generation is supervised fine-tuning on large joke corpora. In practice, however, that objective is a poor match for the structure of the task. Joke corpora contain many repeated setups, familiar wordplay patterns, and conventional punchline forms. As a result, supervised fine-tuning can improve stylistic plausibility without necessarily improving creative generalization. Large humor resources such as rJokes are valuable for scale and topical variety, but they were not constructed as multi-reference generation datasets in which many distinct outputs can simultaneously be correct \citep{weller2020rjokes}.
 
-If SFT is weak, one might expect RLHF to solve the problem by optimizing directly for human preference. In principle, that is plausible. In practice, humor is a difficult domain for preference-based RL because the reward signal is both expensive and noisy. \citet{Zhang2024HumorAI} demonstrate the scale of annotation needed for competitive humor benchmarking, and even then the resulting preferences remain variable. Humor judgments depend on audience, timing, culture, and subjective taste. Low inter-annotator agreement is not merely a nuisance; it is a structural property of the domain.
+Recent literature strengthens this concern from two directions. First, humor-specific work shows that even very large preference datasets do not make creative alignment easy. \citet{Zhang2024HumorAI} explicitly highlight the limitations of RLHF- and DPO-style fine-tuning on creative captioning. Second, post-training work outside humor makes the memorization-generalization distinction sharper. \citet{Chu2025} show that reinforcement learning generalizes more effectively than supervised fine-tuning to unseen textual and visual variants, whereas supervised fine-tuning tends to memorize training patterns and struggle out of distribution. This contrast is especially consequential in humor generation, where a weak prompt can have many good continuations and where memorizing frequent joke shells is not the same as producing an apt and surprising punchline.
 
-The instability of preference modeling is further contextualized by work such as \citet{Gao2023}, who study reward-model overoptimization. Their findings are not specific to humor, but the implication is clear: once the reward model is imperfect, optimizing too aggressively against it can push the policy into artifacts that exploit the reward rather than improve the target behavior. A domain with noisy labels and ambiguous targets is especially vulnerable to this failure mode.
+Preference optimization has its own difficulties. RLHF assumes that a reward model can learn a stable proxy for the target behavior, but humor judgments are noisy and heterogeneous. \citet{Gao2023} show more generally that aggressively optimizing an imperfect reward model can harm true performance. Humor-specific evaluation suggests that the risk is amplified in creative domains: \citet{Sakabe2025} show systematic divergence between human and model humor judgments, while \citet{winters2025evaluating} show that humor quality depends on aspects of performance that are hard to capture in offline textual reward signals. For these reasons, neither supervised fine-tuning nor standard preference optimization cleanly solves the central problem.
 
-Replacing human annotators with LLM judges appears attractive because it scales much better. Yet recent humor-specific evidence suggests caution. \citet{Sakabe2025} find meaningful divergences between model judgments and human judgments in humor evaluation. For a thesis about verifier-free learning, this is a crucial warning sign. If the judge does not understand humor in a human-aligned way, then scaling the judge may only scale the misalignment.
+\section{Reasoning-oriented post-training and verifier-free reinforcement learning}
 
-This does not mean LLM judges are useless. Rather, it means they should be treated as instruments with a defined scope. In the current codebase, pairwise LLM judging is implemented as an evaluation tool, not as the core training reward. That design choice is deliberate.
+The recent success of reasoning-oriented post-training has come mainly from domains with objective verification. \citet{Wei2022} show that intermediate reasoning can substantially change model behavior on tasks that reward multi-step inference. \citet{Lightman2023} extend this logic from prompting to supervision, showing that process supervision outperforms outcome-only supervision on the MATH benchmark. \citet{DeepSeek2025} then demonstrate that reinforcement learning can elicit long-form reasoning without relying on human-authored chains of thought, but the clearest gains are reported in verifiable domains such as mathematics, coding, and related STEM tasks.
 
-\section{Reasoning-oriented post-training}
+This creates the central transfer problem for humor. Humor may also benefit from extended reasoning, yet there is usually no symbolic verifier that can declare a joke correct. Recent verifier-free approaches attempt to close this gap by replacing the explicit verifier with intrinsic probabilities assigned to reference answers. \citet{Zhou2025} propose VeriFree and show that, under a single-reference assumption, maximizing the conditional probability of the reference answer given the prompt and reasoning trace is scalar-equivalent to maximizing an exact-match verifier objective. \citet{Yu2025} develop a related approach and emphasize the need for variance control when token probabilities are used as rewards in general domains.
 
-Reasoning-focused post-training has advanced rapidly in domains where verification is available. \citet{DeepSeek2025} show that reinforcement learning can elicit long-form reasoning behavior without relying exclusively on human-authored chains of thought. Their work is especially relevant because it suggests that reasoning traces need not always be injected as demonstrations; they can emerge when the objective makes them useful.
-
-Earlier prompting research already indicated that language models can benefit from intermediate reasoning. \citet{Wei2022} show that chain-of-thought prompting improves performance on multiple reasoning benchmarks when sufficiently large models are used. Although humor is not among their tasks, the broader lesson applies: intermediate textual reasoning can change model behavior in a meaningful way.
-
-Verification, however, is the key difference between mathematics and humor. Process-supervision work such as \citet{Lightman2023} relies on the availability of reasoning steps that can be evaluated or compared. In humor generation, the reasoning process may be valuable, but there is usually no objective verifier that can declare a joke correct in the same way that a math solution can be checked.
-
-\section{Verifier-free reinforcement learning}
-
-The absence of a symbolic verifier has motivated several recent attempts to extrapolate reasoning RL into more general domains. \citet{Zhou2025} propose VeriFree, which replaces the explicit verifier reward with the model's own conditional probability of the reference answer given the prompt and reasoning trace. The key conceptual move is elegant: when there is a single gold answer, maximizing the probability of that answer under the policy-conditioned reasoning trace is scalar-equivalent to maximizing the expected indicator reward of generating the answer exactly.
-
-\citet{Yu2025} propose RLPR and show that intrinsic model probabilities can act as a reward signal in general domains if sufficient variance control is introduced. Their work is particularly important because it demonstrates competitive performance across several benchmarks and argues that verifier-free methods are not merely theoretical curiosities.
-
-For the purposes of humor generation, however, both approaches inherit a serious assumption from the tasks they target: the presence of a single or effectively single correct reference. Humor rarely satisfies this assumption. A weak prompt such as ``write a joke about atheism'' or ``write a joke using prophet'' does not have one valid completion. It has many, and the observed dataset is only a partial sample from that larger set.
-
-This is the point at which humor becomes methodologically useful rather than merely difficult. It forces the verifier-free literature to confront a case where multi-reference ambiguity is not noise but the essence of the task.
+For humor, however, the single-reference assumption is not a minor technical detail. It is the wrong data model. Prompts such as ``write a joke about atheism'' or ``write a pun using prophet'' admit many plausible responses, and any dataset will observe only a small and biased subset of them. In other words, humor is both multi-reference and only partially observed. This means that verifier-free reasoning methods are conceptually relevant to humor generation, but not directly applicable without reformulating the reward around sets of references rather than single targets.
 
 \section{Research gap}
 
-The literature reviewed above leaves an identifiable gap.
+The literature reviewed above leaves a precise gap. Humor-generation studies increasingly show that staged reasoning, skill decomposition, or theory-guided generation can improve outputs, but these systems mostly rely on hand-designed inference pipelines \citep{chen2023prompt,zhong2024let,Tikhonov2024,Kim2025,ZhangJ2025}. Work on reasoning-oriented reinforcement learning shows that useful reasoning behaviors can emerge from optimization rather than from fully scripted chains, but the strongest existing formulations assume either objective verifiability or a single reference answer \citep{Lightman2023,DeepSeek2025,Zhou2025,Yu2025}. Meanwhile, humor-evaluation research shows that funniness is multidimensional, context-sensitive, and only imperfectly captured by model judges \citep{Zhang2024HumorAI,Sakabe2025,winters2025evaluating,Hashemi2024}.
 
-First, humor-generation studies show that explicit multistep reasoning is useful, yet they mostly encode that reasoning through hand-designed pipelines \citep{Tikhonov2024,ZhangJ2025,Kim2025}. Second, post-training work shows that reinforcement learning can elicit reasoning behavior, but the strongest formulations depend on verifiable tasks or on single-reference assumptions \citep{DeepSeek2025,Zhou2025,Yu2025}. Third, humor-specific evaluation research shows that both human and model judgments are noisy, making direct RLHF or RLAIF an unstable foundation \citep{Zhang2024HumorAI,Sakabe2025}.
-
-Therefore, the unresolved problem is not only ``how to optimize humor,'' but more specifically ``how to formulate a reasoning-oriented objective for humor when multiple valid outputs exist and the reference set is incomplete.'' The thesis addresses this gap by combining two levels of work:
-\begin{itemize}
-  \item a \emph{software level}, where joke corpora are transformed into weak prompts with multiple retrieved references;
-  \item a \emph{theoretical level}, where verifier-free reinforcement learning is extended from a single reference to a multi-reference setting.
-\end{itemize}
-
-The result is not yet a final training study. It is a preliminary thesis in the exact sense required by the current project stage: the data and evaluation infrastructure is implemented, the formal objective is specified, and the pilot analysis shows what is promising and what still needs to be validated.
+The present thesis is positioned at the intersection of these findings. It takes seriously the claim that humor benefits from reasoning, but rejects the need to hard-code a single creative script. It also takes seriously the verifier-free reinforcement-learning literature, but argues that creative tasks require a multi-reference formulation because multiple outputs can be simultaneously good and the observed reference set is incomplete. The resulting research question is therefore narrower and more concrete than ``can AI be funny?'' The question is whether verifier-free reasoning objectives can be extended to partially observed multi-reference humor generation in a way that encourages creative search without collapsing onto memorized joke templates.
 
 \chapter{Methodology}
 
@@ -730,57 +700,9 @@ At the same time, the thesis remains preliminary in the correct sense. The promp
 
 The main conclusion is that the project has now crossed the boundary from a speculative report to a defensible research program. The data representation, software pipeline, and formal objective are aligned. The next step is to implement the training stage and test whether the constructed multi-reference dataset can indeed elicit better reasoning and stronger humor than standard post-training baselines.
 
-\chapter*{References}
-\addcontentsline{toc}{chapter}{References}
-
-\begin{thebibliography}{99}
-
-  \bibitem[Chu et al.(2025)Chu, Zhang, Chen, Ding, and Yu]{Chu2025}
-  Chu, T., Zhang, S., Chen, Y., Ding, N., \& Yu, T. (2025). \textit{SFT memorizes, RL generalizes: A comparative study of foundation model post-training}. OpenReview / arXiv preprint. \href{https://openreview.net/forum?id=2P4rYTtGok}{https://openreview.net/forum?id=2P4rYTtGok}
-
-  \bibitem[DeepSeek-AI(2025)]{DeepSeek2025}
-  DeepSeek-AI. (2025). \textit{DeepSeek-R1: Incentivizing reasoning capability in LLMs via reinforcement learning}. arXiv. \href{https://doi.org/10.48550/arXiv.2501.12948}{https://doi.org/10.48550/arXiv.2501.12948}
-
-  \bibitem[Gao et al.(2023)Gao, Schulman, Hilton, and others]{Gao2023}
-  Gao, L., Schulman, J., Hilton, J., \& others. (2023). \textit{Scaling laws for reward model overoptimization}. arXiv. \href{https://arxiv.org/abs/2210.10760}{https://arxiv.org/abs/2210.10760}
-
-  \bibitem[Gunjal et al.(2025)Gunjal, Wang, Lau, Nath, He, Liu, and Hendryx]{Gunjal2025}
-  Gunjal, A., Wang, A., Lau, E., Nath, V., He, Y., Liu, B., \& Hendryx, S. (2025). \textit{Rubrics as rewards: Reinforcement learning beyond verifiable domains}. arXiv. \href{https://doi.org/10.48550/arXiv.2507.17746}{https://doi.org/10.48550/arXiv.2507.17746}
-
-  \bibitem[Hashemi et al.(2024)Hashemi, Eisner, Rosset, Van~Durme, and Kedzie]{Hashemi2024}
-  Hashemi, H., Eisner, J., Rosset, C., Van~Durme, B., \& Kedzie, C. (2024). \textit{LLM-Rubric: A multidimensional, calibrated approach to automated evaluation of natural language texts}. \textit{Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics}. \href{https://aclanthology.org/2024.acl-long.745/}{https://aclanthology.org/2024.acl-long.745/}
-
-  \bibitem[Kim and Chilton(2025)]{Kim2025}
-  Kim, S., \& Chilton, L. B. (2025). \textit{AI humor generation: Cognitive, social and creative skills for effective humor}. arXiv. \href{https://arxiv.org/abs/2502.07981}{https://arxiv.org/abs/2502.07981}
-
-  \bibitem[Lightman et al.(2023)Lightman, Kosaraju, Burda, Edwards, Baker, Lee, Leike, Schulman, Sutskever, and Cobbe]{Lightman2023}
-  Lightman, H., Kosaraju, V., Burda, Y., Edwards, H., Baker, B., Lee, T., Leike, J., Schulman, J., Sutskever, I., \& Cobbe, K. (2023). \textit{Let's verify step by step}. OpenAI / arXiv preprint. \href{https://arxiv.org/abs/2305.20050}{https://arxiv.org/abs/2305.20050}
-
-  \bibitem[Loakman et al.(2025)Loakman, Thorne, and Lin]{Loakman2025}
-  Loakman, T., Thorne, W., \& Lin, C. (2025). \textit{Who's laughing now? An overview of computational humour generation and explanation}. arXiv. \href{https://arxiv.org/abs/2509.21175}{https://arxiv.org/abs/2509.21175}
-
-  \bibitem[Sakabe et al.(2025)Sakabe, Kim, Hirasawa, and Komachi]{Sakabe2025}
-  Sakabe, R., Kim, H., Hirasawa, T., \& Komachi, M. (2025). \textit{Assessing the capabilities of LLMs in humor: A multi-dimensional analysis of Oogiri generation and evaluation}. arXiv. \href{https://arxiv.org/abs/2511.09133}{https://arxiv.org/abs/2511.09133}
-
-  \bibitem[Tikhonov and Shtykovskiy(2024)]{Tikhonov2024}
-  Tikhonov, A., \& Shtykovskiy, P. (2024). \textit{Humor mechanics: Advancing humor generation with multistep reasoning}. arXiv. \href{https://arxiv.org/abs/2405.10073}{https://arxiv.org/abs/2405.10073}
-
-  \bibitem[Wei et al.(2022)Wei, Wang, Schuurmans, Bosma, Ichter, Xia, Chi, Le, and Zhou]{Wei2022}
-  Wei, J., Wang, X., Schuurmans, D., Bosma, M., Ichter, B., Xia, F., Chi, E., Le, Q., \& Zhou, D. (2022). \textit{Chain-of-thought prompting elicits reasoning in large language models}. arXiv. \href{https://doi.org/10.48550/arXiv.2201.11903}{https://doi.org/10.48550/arXiv.2201.11903}
-
-  \bibitem[Yu et al.(2025)Yu, Ji, Wang, Yao, Wang, Cui, Yuan, Ding, Yao, Liu, Sun, and Chua]{Yu2025}
-  Yu, T., Ji, B., Wang, S., Yao, S., Wang, Z., Cui, G., Yuan, L., Ding, N., Yao, Y., Liu, Z., Sun, M., \& Chua, T.-S. (2025). \textit{RLPR: Extrapolating RLVR to general domains without verifiers}. arXiv. \href{https://doi.org/10.48550/arXiv.2506.18254}{https://doi.org/10.48550/arXiv.2506.18254}
-
-  \bibitem[Zhang et al.(2024)Zhang, Jain, Guo, Chen, Zhou, Suresh, Wagenmaker, Sievert, Rogers, Jamieson, Mankoff, and Nowak]{Zhang2024HumorAI}
-  Zhang, J., Jain, L., Guo, Y., Chen, J., Zhou, K. L., Suresh, S., Wagenmaker, A., Sievert, S., Rogers, T., Jamieson, K., Mankoff, R., \& Nowak, R. (2024). \textit{Humor in AI: Massive scale crowd-sourced preferences and benchmarks for cartoon captioning}. \textit{Advances in Neural Information Processing Systems, Datasets and Benchmarks Track}. \href{https://arxiv.org/abs/2406.10522}{https://arxiv.org/abs/2406.10522}
-
-  \bibitem[Zhang et al.(2025)Zhang, Luo, Zhang, and Su]{ZhangJ2025}
-  Zhang, J., Luo, S., Zhang, R., \& Su, Q. (2025). \textit{HUMORCHAIN: Theory-guided multi-stage reasoning for interpretable multimodal humor generation}. arXiv. \href{https://doi.org/10.48550/arXiv.2511.21732}{https://doi.org/10.48550/arXiv.2511.21732}
-
-  \bibitem[Zhou et al.(2025)Zhou, Liu, Sims, Wang, Pang, Li, Wang, Lin, and Du]{Zhou2025}
-  Zhou, X., Liu, Z., Sims, A., Wang, H., Pang, T., Li, C., Wang, L., Lin, M., \& Du, C. (2025). \textit{Reinforcing general reasoning without verifiers}. arXiv. \href{https://arxiv.org/abs/2505.21493}{https://arxiv.org/abs/2505.21493}
-
-\end{thebibliography}
+\renewcommand{\bibname}{References}
+\bibliographystyle{plainnat}
+\bibliography{references}
 
 \appendix
 
