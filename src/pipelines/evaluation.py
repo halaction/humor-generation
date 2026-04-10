@@ -51,8 +51,6 @@ class EvaluationPipeline(BasePipeline):
                 pa.field("id", pa.int64()),
                 pa.field("reference_id", pa.int64()),
                 pa.field("prompt", pa.string()),
-                pa.field("left_model_id", pa.string()),
-                pa.field("right_model_id", pa.string()),
                 pa.field("left_model", pa.string()),
                 pa.field("right_model", pa.string()),
                 pa.field("left_text", pa.string()),
@@ -63,7 +61,6 @@ class EvaluationPipeline(BasePipeline):
         self.leaderboard_schema = pa.schema(
             [
                 pa.field("id", pa.int64()),
-                pa.field("model_id", pa.string()),
                 pa.field("model", pa.string()),
                 pa.field("bt_score", pa.float64()),
                 pa.field("wins", pa.float64()),
@@ -76,8 +73,6 @@ class EvaluationPipeline(BasePipeline):
             "id",
             "reference_id",
             "prompt",
-            "left_model_id",
-            "right_model_id",
             "left_model",
             "right_model",
             "left_text",
@@ -138,17 +133,16 @@ class EvaluationPipeline(BasePipeline):
         self,
         candidates: Dataset,
     ) -> dict[int, dict[str, list[EvaluationCandidate]]]:
-        required_columns = {"id", "keywords", "model_id", "model", "text"}
+        required_columns = {"id", "keywords", "model", "text"}
         missing = required_columns - set(candidates.column_names)
         if missing:
             msg = f"Missing required columns: {sorted(missing)}"
             raise ValueError(msg)
 
-        frame = cast("pl.DataFrame", candidates.to_polars()).select(["id", "keywords", "model_id", "model", "text"])
+        frame = cast("pl.DataFrame", candidates.to_polars()).select(["id", "keywords", "model", "text"])
         frame = frame.with_columns(
             pl.col("id").cast(pl.Int64, strict=True),
             pl.col("keywords").cast(pl.List(pl.String), strict=False),
-            pl.col("model_id").cast(pl.String, strict=False).str.strip_chars(),
             pl.col("model").cast(pl.String, strict=False).str.strip_chars(),
             pl.col("text").cast(pl.String, strict=False).str.strip_chars(),
         )
@@ -157,10 +151,8 @@ class EvaluationPipeline(BasePipeline):
         invalid_rows = frame.filter(
             pl.col("id").is_null()
             | pl.col("keywords").is_null()
-            | pl.col("model_id").is_null()
             | pl.col("model").is_null()
             | pl.col("text").is_null()
-            | (pl.col("model_id") == "")
             | (pl.col("model") == "")
             | (pl.col("text") == "")
         )
@@ -189,7 +181,7 @@ class EvaluationPipeline(BasePipeline):
             msg = "Inconsistent keywords detected for one or more reference ids."
             raise ValueError(msg)
 
-        frame = frame.sort(["id", "model_id"])
+        frame = frame.sort(["id", "model"])
         candidates_per_reference: dict[int, dict[str, list[EvaluationCandidate]]] = defaultdict(
             lambda: defaultdict(list)
         )
@@ -198,11 +190,10 @@ class EvaluationPipeline(BasePipeline):
             candidate = EvaluationCandidate(
                 id=cast("int", row["id"]),
                 keywords=keywords,
-                model_id=cast("str", row["model_id"]),
                 model=cast("str", row["model"]),
                 text=cast("str", row["text"]),
             )
-            candidates_per_reference[candidate.id][candidate.model_id].append(candidate)
+            candidates_per_reference[candidate.id][candidate.model].append(candidate)
         return dict(candidates_per_reference)
 
     def _build_pairs(
@@ -213,10 +204,10 @@ class EvaluationPipeline(BasePipeline):
         next_id = 0
         for reference_id in sorted(candidates_per_reference):
             groups = candidates_per_reference[reference_id]
-            model_ids = sorted(groups)
-            for left_model_id, right_model_id in combinations(model_ids, 2):
-                left_group = groups[left_model_id]
-                right_group = groups[right_model_id]
+            models = sorted(groups)
+            for left_model, right_model in combinations(models, 2):
+                left_group = groups[left_model]
+                right_group = groups[right_model]
                 for left_candidate in left_group:
                     for right_candidate in right_group:
                         if float(rng.random()) < 0.5:
@@ -231,8 +222,6 @@ class EvaluationPipeline(BasePipeline):
                                 id=next_id,
                                 reference_id=reference_id,
                                 prompt=prompt[: self.config.max_prompt_chars],
-                                left_model_id=first.model_id,
-                                right_model_id=second.model_id,
                                 left_model=first.model,
                                 right_model=second.model,
                                 left_text=first.text,
@@ -279,16 +268,16 @@ class EvaluationPipeline(BasePipeline):
                 {
                     "id": pl.Series([], dtype=pl.Int64),
                     "reference_id": pl.Series([], dtype=pl.Int64),
-                    "left_model_id": pl.Series([], dtype=pl.String),
-                    "right_model_id": pl.Series([], dtype=pl.String),
+                    "left_model": pl.Series([], dtype=pl.String),
+                    "right_model": pl.Series([], dtype=pl.String),
                 }
             )
         return pl.DataFrame(
             {
                 "id": [pair.id for pair in pairs],
                 "reference_id": [pair.reference_id for pair in pairs],
-                "left_model_id": [pair.left_model_id for pair in pairs],
-                "right_model_id": [pair.right_model_id for pair in pairs],
+                "left_model": [pair.left_model for pair in pairs],
+                "right_model": [pair.right_model for pair in pairs],
             }
         )
 
@@ -306,8 +295,8 @@ class EvaluationPipeline(BasePipeline):
 
         pair_frame = self._pairs_frame(pairs)
         valid_rows = existing_frame.join(
-            pair_frame.select(["id", "reference_id", "left_model_id", "right_model_id"]),
-            on=["id", "reference_id", "left_model_id", "right_model_id"],
+            pair_frame.select(["id", "reference_id", "left_model", "right_model"]),
+            on=["id", "reference_id", "left_model", "right_model"],
             how="inner",
         )
         if valid_rows.is_empty():
@@ -344,8 +333,6 @@ class EvaluationPipeline(BasePipeline):
                         id=[pair.id],
                         reference_id=[pair.reference_id],
                         prompt=[pair.prompt],
-                        left_model_id=[pair.left_model_id],
-                        right_model_id=[pair.right_model_id],
                         left_model=[pair.left_model],
                         right_model=[pair.right_model],
                         left_text=[pair.left_text],
@@ -366,69 +353,48 @@ class EvaluationPipeline(BasePipeline):
             return
 
         frame = self._to_existing_rows_frame(rows)
-        labels_frame = pl.concat(
-            [
-                frame.select(pl.col("left_model_id").alias("model_id"), pl.col("left_model").alias("model")),
-                frame.select(pl.col("right_model_id").alias("model_id"), pl.col("right_model").alias("model")),
-            ]
-        )
-        inconsistent_labels = (
-            labels_frame.group_by("model_id")
-            .agg(pl.col("model").n_unique().alias("n_labels"))
-            .filter(pl.col("n_labels") > 1)
-            .height
-        )
-        if inconsistent_labels > 0:
-            msg = "Inconsistent model label for one or more model ids."
-            raise ValueError(msg)
-
-        labels = {
-            cast("str", row["model_id"]): cast("str", row["model"])
-            for row in labels_frame.unique(subset=["model_id"]).to_dicts()
-        }
         wins: dict[str, float] = {}
         losses: dict[str, float] = {}
         comparisons: dict[str, int] = {}
         bt_input: list[tuple[str, str, float, float]] = []
 
         for row in frame.to_dicts():
-            left_model_id = cast("str", row["left_model_id"])
-            right_model_id = cast("str", row["right_model_id"])
+            left_model = cast("str", row["left_model"])
+            right_model = cast("str", row["right_model"])
             winner = cast("str", row["winner"])
 
-            wins.setdefault(left_model_id, 0.0)
-            wins.setdefault(right_model_id, 0.0)
-            losses.setdefault(left_model_id, 0.0)
-            losses.setdefault(right_model_id, 0.0)
-            comparisons[left_model_id] = comparisons.get(left_model_id, 0) + 1
-            comparisons[right_model_id] = comparisons.get(right_model_id, 0) + 1
+            wins.setdefault(left_model, 0.0)
+            wins.setdefault(right_model, 0.0)
+            losses.setdefault(left_model, 0.0)
+            losses.setdefault(right_model, 0.0)
+            comparisons[left_model] = comparisons.get(left_model, 0) + 1
+            comparisons[right_model] = comparisons.get(right_model, 0) + 1
 
             if winner == "left":
-                wins[left_model_id] += 1.0
-                losses[right_model_id] += 1.0
-                bt_input.append((left_model_id, right_model_id, 1.0, 0.0))
+                wins[left_model] += 1.0
+                losses[right_model] += 1.0
+                bt_input.append((left_model, right_model, 1.0, 0.0))
             elif winner == "right":
-                wins[right_model_id] += 1.0
-                losses[left_model_id] += 1.0
-                bt_input.append((left_model_id, right_model_id, 0.0, 1.0))
+                wins[right_model] += 1.0
+                losses[left_model] += 1.0
+                bt_input.append((left_model, right_model, 0.0, 1.0))
             else:
                 msg = f"Unexpected winner value: {winner}"
                 raise ValueError(msg)
 
-        model_ids = sorted(set(wins))
-        bt_scores = self._bt_scores(models=model_ids, results=bt_input)
+        models = sorted(set(wins))
+        bt_scores = self._bt_scores(models=models, results=bt_input)
         leaderboard_rows = []
-        for idx, model_id in enumerate(model_ids):
-            n = comparisons.get(model_id, 0)
-            w = wins.get(model_id, 0.0)
+        for idx, model in enumerate(models):
+            n = comparisons.get(model, 0)
+            w = wins.get(model, 0.0)
             leaderboard_rows.append(
                 {
                     "id": idx,
-                    "model_id": model_id,
-                    "model": labels[model_id],
-                    "bt_score": bt_scores.get(model_id, 0.0),
+                    "model": model,
+                    "bt_score": bt_scores.get(model, 0.0),
                     "wins": w,
-                    "losses": losses.get(model_id, 0.0),
+                    "losses": losses.get(model, 0.0),
                     "n_comparisons": n,
                     "win_rate": (w / n) if n > 0 else 0.0,
                 }
@@ -486,7 +452,6 @@ class EvaluationPipeline(BasePipeline):
             "run.done",
             output_dir=str(self.root_dir),
             pair_count=len(all_rows),
-            model_count=len({str(r["left_model_id"]) for r in all_rows} | {str(r["right_model_id"]) for r in all_rows}),
         )
         return self.root_dir
 

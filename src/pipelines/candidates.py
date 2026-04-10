@@ -1,4 +1,6 @@
 import asyncio
+import json
+import argparse
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, cast
@@ -27,13 +29,15 @@ class CandidatesPipeline(BasePipeline):
         pipeline_config: CandidatesConfig | None = None,
         output_dir: Path | None = None,
         client: AsyncOpenAI | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.config = pipeline_config or config.candidates
         self.output_root_dir = output_dir or DATA_DIR / self.config.hf_config_name
         self.output_dir = self.output_root_dir
         self.client = client or AsyncOpenAI(
-            base_url=settings.OPENAI_BASE_URL,
-            api_key=settings.OPENAI_API_KEY,
+            base_url=base_url or settings.OPENAI_BASE_URL,
+            api_key=api_key or settings.OPENAI_API_KEY,
             timeout=self.config.timeout,
         )
         self.next_part_index = 0
@@ -42,7 +46,6 @@ class CandidatesPipeline(BasePipeline):
             [
                 pa.field("id", pa.int64()),
                 pa.field("keywords", pa.list_(pa.string())),
-                pa.field("model_id", pa.string()),
                 pa.field("model", pa.string()),
                 pa.field("text", pa.string()),
             ]
@@ -58,28 +61,11 @@ class CandidatesPipeline(BasePipeline):
     def _check_buffer_size(self, write_buffer: list[CandidateOutput]) -> bool:
         return len(write_buffer) >= self.config.shard_size
 
-    @staticmethod
-    def _extract_text(content: str | list[Any] | None) -> str:
-        if content is None:
-            return ""
-        if isinstance(content, str):
-            return content.strip()
-        parts: list[str] = []
-        for item in content:
-            if hasattr(item, "text"):
-                parts.append(str(item.text))
-            elif isinstance(item, dict) and "text" in item:
-                parts.append(str(item["text"]))
-            else:
-                parts.append(str(item))
-        return "".join(parts).strip()
-
     async def _generate_candidate(
         self,
         row_id: int,
         keywords: list[str],
         model: str,
-        model_id: str,
         semaphore: asyncio.Semaphore,
     ) -> CandidateOutput:
         prompt = self.prompt_template.render(keywords=keywords).strip()
@@ -93,11 +79,10 @@ class CandidatesPipeline(BasePipeline):
                         messages=[{"role": "user", "content": prompt}],
                     )
                     message = completion.choices[0].message
-                    text = self._extract_text(message.content)
+                    text = message.content or ""
                     return CandidateOutput(
                         id=row_id,
                         keywords=keywords,
-                        model_id=model_id,
                         model=model,
                         text=text,
                     )
@@ -113,7 +98,6 @@ class CandidatesPipeline(BasePipeline):
         self,
         references: Dataset,
         model: str,
-        model_id: str,
         resume: bool = False,
     ) -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -139,7 +123,6 @@ class CandidatesPipeline(BasePipeline):
                         row_id=cast("int", row["id"]),
                         keywords=cast("list[str]", row["keywords"]),
                         model=model,
-                        model_id=model_id,
                         semaphore=semaphore,
                     )
                 )
@@ -161,7 +144,6 @@ class CandidatesPipeline(BasePipeline):
             "run.done",
             output_dir=str(self.output_dir),
             model=model,
-            model_id=model_id,
         )
         return self.output_dir
 
@@ -170,7 +152,6 @@ class CandidatesPipeline(BasePipeline):
         *,
         split: str,
         model: str,
-        model_id: str,
         references_dir: Path | None = None,
         resume: bool = True,
     ) -> Path:
@@ -183,12 +164,11 @@ class CandidatesPipeline(BasePipeline):
             data_files={split: str(references_root / split / "part-*.parquet")},
             split=split,
         )
-        self.output_dir = self.output_root_dir / model_id / split
+        self.output_dir = self.output_root_dir / model / split
         output_dir = asyncio.run(
             self.run(
                 references=references,
                 model=model,
-                model_id=model_id,
                 resume=resume,
             )
         )
@@ -198,16 +178,13 @@ class CandidatesPipeline(BasePipeline):
     def publish(
         self,
         repo_id: str = settings.HF_DATASET_REPO_ID,
-        model_id: str = "baseline",
+        model: str = "baseline",
         split: str = "test",
         config_name: str | None = None,
         private: bool = False,
-        model: str | None = None,
-        references_dir: Path | None = None,
-        resume: bool = True,
     ) -> tuple[str, str]:
-        resolved_config_name = config_name or model_id
-        model_root = self.output_root_dir / model_id
+        resolved_config_name = config_name or model
+        model_root = self.output_root_dir / model
         split_dir = model_root / split
 
         has_split_data = split_dir.exists() and any(split_dir.glob("part-*.parquet"))
@@ -230,7 +207,7 @@ class CandidatesPipeline(BasePipeline):
         logger.info(
             "publish.done",
             repo_id=repo_id,
-            model_id=model_id,
+            model=model,
             config_name=resolved_config_name,
             split=split,
             output_dir=str(model_root),
@@ -239,19 +216,32 @@ class CandidatesPipeline(BasePipeline):
 
 
 def main() -> None:
-    pipeline = CandidatesPipeline()
+    parser = argparse.ArgumentParser(description="Run candidate generation.")
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--split", required=True)
+    parser.add_argument("--references-dir", default=None)
+    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=False)
+    args = parser.parse_args()
+
+    output_dir = Path(args.output_dir) if args.output_dir else None
+    references_dir = Path(args.references_dir) if args.references_dir else None
+
+    pipeline = CandidatesPipeline(output_dir=output_dir)
     output_dir = pipeline.build(
-        split="test",
-        model=config.candidates.model,
-        model_id="baseline",
-        resume=False,
+        split=args.split,
+        model=args.model,
+        references_dir=references_dir,
+        resume=args.resume,
     )
-    repo_id, config_name = pipeline.publish(model_id="baseline", split="test")
+    repo_id, config_name = pipeline.publish(model=args.model, split=args.split)
     print(
         {
             "candidates_dir": str(output_dir),
             "repo_id": repo_id,
             "config_name": config_name,
+            "model": args.model,
+            "split": args.split,
         }
     )
 

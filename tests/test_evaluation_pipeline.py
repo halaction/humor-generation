@@ -85,8 +85,7 @@ def test_evaluation_keyword_schema_and_leaderboard(tmp_path: Path) -> None:
                 ["prompt", "two"],
                 ["prompt", "two"],
             ],
-            "model_id": ["base-v1", "instruct-v1", "thinking-v1", "base-v1", "instruct-v1"],
-            "model": ["base", "instruct", "thinking", "base", "instruct"],
+            "model": ["base-v1", "instruct-v1", "thinking-v1", "base-v1", "instruct-v1"],
             "text": ["base p1", "instruct p1", "thinking p1", "base p2", "instruct p2"],
         }
     )
@@ -121,28 +120,25 @@ def test_evaluation_keyword_schema_and_leaderboard(tmp_path: Path) -> None:
     assert sorted(evaluations[0].keys()) == [
         "id",
         "left_model",
-        "left_model_id",
         "left_text",
         "prompt",
         "reference_id",
         "right_model",
-        "right_model_id",
         "right_text",
         "winner",
     ]
     assert sorted(int(row["id"]) for row in evaluations) == [0, 1, 2, 3]
 
     leaderboard = _read_part_rows(tmp_path / "bundle" / "leaderboard")
-    by_model_id = {str(row["model_id"]): row for row in leaderboard}
-    assert by_model_id["thinking-v1"]["bt_score"] > by_model_id["base-v1"]["bt_score"]
+    by_model = {str(row["model"]): row for row in leaderboard}
+    assert by_model["thinking-v1"]["bt_score"] > by_model["base-v1"]["bt_score"]
 
 
 def test_evaluation_requires_keywords(tmp_path: Path) -> None:
     candidates = Dataset.from_dict(
         {
             "id": [1, 1],
-            "model_id": ["base-v1", "instruct-v1"],
-            "model": ["base", "instruct"],
+            "model": ["base-v1", "instruct-v1"],
             "text": ["a", "b"],
         }
     )
@@ -160,8 +156,7 @@ def test_evaluation_rejects_inconsistent_keywords_for_same_id(tmp_path: Path) ->
         {
             "id": [1, 1],
             "keywords": [["cat"], ["dog"]],
-            "model_id": ["base-v1", "instruct-v1"],
-            "model": ["base", "instruct"],
+            "model": ["base-v1", "instruct-v1"],
             "text": ["a", "b"],
         }
     )
@@ -179,8 +174,7 @@ def test_evaluation_resume_keeps_existing_pairs(tmp_path: Path) -> None:
         {
             "id": [1, 1],
             "keywords": [["prompt", "one"], ["prompt", "one"]],
-            "model_id": ["base-v1", "instruct-v1"],
-            "model": ["base", "instruct"],
+            "model": ["base-v1", "instruct-v1"],
             "text": ["base p1", "instruct p1"],
         }
     )
@@ -206,8 +200,7 @@ def test_evaluation_resume_rebuilds_when_rows_are_incomplete(tmp_path: Path) -> 
         {
             "id": [1, 1, 2, 2],
             "keywords": [["prompt", "one"], ["prompt", "one"], ["prompt", "two"], ["prompt", "two"]],
-            "model_id": ["base-v1", "instruct-v1", "base-v1", "instruct-v1"],
-            "model": ["base", "instruct", "base", "instruct"],
+            "model": ["base-v1", "instruct-v1", "base-v1", "instruct-v1"],
             "text": ["base p1", "instruct p1", "base p2", "instruct p2"],
         }
     )

@@ -87,16 +87,14 @@ def test_candidates_pipeline_generates_from_keywords_only(tmp_path: Path) -> Non
     asyncio.run(
         pipeline.run(
             references=references,
-            model="mock-model",
-            model_id="base-v1",
+            model="base-v1",
             resume=False,
         )
     )
 
     rows = _load_rows(tmp_path / "candidates")
     assert len(rows) == 2
-    assert sorted(str(row["model_id"]) for row in rows) == ["base-v1", "base-v1"]
-    assert sorted(str(row["model"]) for row in rows) == ["mock-model", "mock-model"]
+    assert sorted(str(row["model"]) for row in rows) == ["base-v1", "base-v1"]
     assert all("Write a joke using the following keyword(s):" in prompt for prompt in client.chat.completions.prompts)
     assert client.chat.completions.calls == 2
 
@@ -125,8 +123,7 @@ def test_candidates_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
     asyncio.run(
         pipeline.run(
             references=references,
-            model="mock-model",
-            model_id="base-v1",
+            model="base-v1",
             resume=True,
         )
     )
@@ -134,8 +131,7 @@ def test_candidates_pipeline_resume_skips_seen_ids(tmp_path: Path) -> None:
     asyncio.run(
         pipeline.run(
             references=references,
-            model="mock-model",
-            model_id="base-v1",
+            model="base-v1",
             resume=True,
         )
     )

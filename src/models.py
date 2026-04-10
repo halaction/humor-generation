@@ -44,7 +44,6 @@ class ReferencesOutputs(BaseModel):
 class CandidateOutput(BaseModel):
     id: int
     keywords: list[str]
-    model_id: str
     model: str
     text: str
 
@@ -52,7 +51,6 @@ class CandidateOutput(BaseModel):
 class EvaluationCandidate(BaseModel):
     id: int
     keywords: list[str]
-    model_id: str
     model: str
     text: str
 
@@ -61,8 +59,6 @@ class EvaluationPair(BaseModel):
     id: int
     reference_id: int
     prompt: str
-    left_model_id: str
-    right_model_id: str
     left_model: str
     right_model: str
     left_text: str
@@ -77,8 +73,6 @@ class EvaluationOutputs(BaseModel):
     id: list[int]
     reference_id: list[int]
     prompt: list[str]
-    left_model_id: list[str]
-    right_model_id: list[str]
     left_model: list[str]
     right_model: list[str]
     left_text: list[str]
