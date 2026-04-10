@@ -1,0 +1,9 @@
+model: Qwen/Qwen3-0.6B
+served-model-name: qwen3-06b
+host: 127.0.0.1
+port: 8000
+# dtype: bfloat16
+tensor-parallel-size: 1
+# gpu-memory-utilization: 0.85
+# max-model-len: 4096
+# trust-remote-code: true
