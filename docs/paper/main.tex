@@ -1,344 +1,827 @@
-\documentclass[12pt]{extarticle}
+\documentclass[14pt,a4paper]{extreport}
 
-\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[a4paper,left=30mm,right=15mm,top=20mm,bottom=20mm]{geometry}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[english]{babel}
+\usepackage{setspace}
+\onehalfspacing
 \usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{tabularx}
 \usepackage{enumitem}
 \usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{titlesec}
 
-\setlength{\parskip}{0.55em}
-\setlength{\parindent}{0pt}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=black,
+  urlcolor=blue,
+}
 
-\title{Reasoning without Verifiers for Humor Generation}
-\author{}
-\date{}
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{0pt}
+\emergencystretch=3em
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+\setlist[itemize]{leftmargin=1.8em}
+\setlist[enumerate]{leftmargin=1.8em}
+\urlstyle{same}
+
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries\centering}
+  {\chaptertitlename\ \thechapter}
+  {0.5em}
+  {\Large}
+
+\newcommand{\prompt}[1]{\texttt{#1}}
 
 \begin{document}
-\maketitle
 
-\section{Introduction}
+\pagenumbering{arabic}
 
-\textbf{SFT is insufficient for humor generation.} In practice, supervised fine-tuning on humor datasets tends to improve surface-level fluency but it does not produce genuinely funny outputs. Models often converge to generic templates and safe puns, suggesting that pure likelihood training does not elicit creativity in humor generation.
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Loakman, Tyler and Thorne, William and Lin, Chenghua (2025). ``Who’s laughing now? an overview of computational humour generation and explanation.''
+\tableofcontents
+\clearpage
+
+\chapter*{Introduction}
+\addcontentsline{toc}{chapter}{Introduction}
+
+Humor generation is one of the clearest examples of a language task that matters precisely because it is hard to verify automatically. A joke may be grammatically correct, semantically coherent, and even topically relevant while still failing at the central target: making a reader laugh. This makes humor generation a useful stress test for modern language-model post-training. In domains such as mathematics, coding, or formal logic, reinforcement learning can rely on explicit verification signals. In humor, by contrast, the output space is open-ended, the number of acceptable answers is large, and human judgments are noisy. The same prompt can admit many good jokes, while a dataset usually records only one or a few. These properties make humor an informative case for studying reasoning in non-verifiable domains.
+
+The relevance of the topic is determined by three converging trends. First, recent surveys show that computational humor is moving from isolated rule-based or template-based systems toward large language model pipelines, yet the gap between fluent text and genuinely funny output remains substantial \citep{Loakman2025}. Second, post-training research increasingly suggests that supervised fine-tuning (SFT) and reinforcement learning optimize different capabilities: SFT is effective at imitation, whereas reinforcement learning is more promising when generalization beyond the training surface is required \citep{Chu2025}. Third, reasoning-focused reinforcement learning has recently produced strong results in domains with explicit verifiers, motivating the question of whether similar methods can be adapted to creative tasks where direct verification is impossible \citep{DeepSeek2025,Zhou2025,Yu2025}.
+
+This thesis studies humor generation as a non-verifiable reasoning problem. The central idea is that humor does not only require a good final answer; it often benefits from exploratory reasoning over premises, associations, contrasts, and punchline formats. Multi-step humor systems already exploit this fact at inference time by explicitly decomposing the creative process into intermediate stages \citep{Tikhonov2024,ZhangJ2025,Kim2025}. However, such systems are architecturally restrictive: the number of stages, the reasoning style, and the intermediate control signals are designed manually. The alternative investigated in this thesis is to construct a training setting in which a model can learn how to reason for humor generation without requiring a symbolic verifier.
+
+The object of the study is the post-training of large language models for creative text generation. The subject of the study is the design of a multi-reference verifier-free reinforcement learning objective for humor generation together with the supporting data pipeline needed to make such an objective operational.
+
+The goal of the thesis is to develop a preliminary methodological and software foundation for training humor-generation models with verifier-free reinforcement learning, while remaining faithful to the actual implementation status of the project. In practical terms, the work aims to transform a large joke corpus into prompt-reference sets suitable for multi-reference training and evaluation, formulate the corresponding reinforcement learning objective, and analyze whether the constructed data artifacts are adequate for a later MRVF training stage.
+
+To achieve this goal, the following tasks are addressed:
+\begin{enumerate}
+  \item analyze recent literature on computational humor, post-training, and verifier-free reasoning methods;
+  \item define the research gap between current humor pipelines and reinforcement learning for non-verifiable domains;
+  \item build a corpus-processing pipeline that converts raw jokes into weak prompts with multiple retrieved references;
+  \item implement candidate-generation and evaluation components for later benchmark comparisons;
+  \item formulate a multi-reference extension of verifier-free reinforcement learning and discuss its statistical consequences under incomplete references;
+  \item evaluate the current pilot data pipeline using descriptive statistics, qualitative examples, and implementation analysis;
+  \item outline the next experimental stage needed to turn the pilot into a full thesis-level training study.
+\end{enumerate}
+
+The working hypothesis of the thesis is that humor generation can be made more amenable to reasoning-oriented post-training if the learning problem is reframed from ``predict the single gold joke'' to ``assign probability mass to a set of acceptable jokes conditioned on a weak prompt.'' Under this hypothesis, the main obstacle is not only reward design, but also dataset structure: a useful training signal requires prompts that admit multiple valid references rather than isolated one-to-one joke mappings.
+
+The scientific novelty of the work is threefold. First, it adapts the verifier-free reinforcement learning perspective of \citet{Zhou2025} and \citet{Yu2025} to a creative task where multiple valid outputs are expected by definition. Second, it makes explicit the difference between the original conceptual report and the current implemented system: rather than a full generative prompt inversion module, the present codebase realizes a retrieval-based approximation built on keywords, embedding search, and reference-set construction. Third, it provides an empirical pilot analysis of this approximation on real data, which is necessary before a more expensive reinforcement-learning stage can be justified.
+
+The practical value of the work lies in the implemented software pipeline. The repository currently contains modular Python components for corpus collection, embedding generation, keyword extraction, reference retrieval, candidate generation, and pairwise evaluation. These components produce reusable parquet datasets and isolate stages that can later be reused for baseline generation, preference comparison, and reinforcement-learning experiments.
+
+The empirical basis of the work consists of the combined joke corpus built from the Short Jokes and rJokes collections. In the current local state of the repository, the complete raw corpus contains 664{,}048 jokes, while the downstream pilot pipeline processes a smaller subset for prompt construction and reference analysis. This distinction is important: the thesis is preliminary not only in conceptual scope, but also in the current scale of the implemented experiments.
+
+Methodologically, the thesis combines literature review, software engineering, corpus construction, embedding-based retrieval, mathematical derivation of an objective function, and descriptive analysis of intermediate artifacts. This combination reflects the actual status of the research problem: before large-scale reinforcement learning can be defended, the data representation, prompt formulation, and reference structure must first be stabilized.
+
+The structure of the thesis follows the standard university requirements. Chapter 1 reviews the literature on humor generation, evaluation, and reasoning-oriented post-training. Chapter 2 presents the methodology, including the implemented pipeline and the formal MRVF objective. Chapter 3 reports the current pilot results, discusses strengths and limitations of the constructed dataset, and explains what remains to be implemented for the final thesis. The work concludes with a summary of findings, followed by the list of references and appendices.
+
+\chapter{Literature Review}
+
+\section{Computational humor as a research problem}
+
+Humor occupies a peculiar position in natural language processing. It is simultaneously a linguistic, cognitive, and social phenomenon. A successful joke often depends on lexical ambiguity, world knowledge, expectation violation, narrative timing, shared cultural assumptions, and audience-specific norms. Because of this, humor generation is a stronger test of language understanding than tasks where surface fluency alone is rewarded. In their recent overview, \citet{Loakman2025} describe computational humor as a field that has grown rapidly with the spread of large language models, but they also emphasize that many systems still confuse textual well-formedness with genuine humorous effect.
+
+% TODO: Find sources of these earlier systems, or at least refer to one of the surveys.
+Historically, humor generation systems often relied on templates, pun dictionaries, handcrafted transformations, or narrow theoretical assumptions about incongruity. These approaches had a clear advantage: they encoded at least one identifiable humorous mechanism. Their disadvantage was low coverage and poor adaptability. Large language models invert this trade-off. They offer broad coverage and excellent fluency, but they often produce humor that is bland, derivative, or insufficiently surprising. This shift from low-fluency/high-control to high-fluency/low-control is central to the present thesis.
+
+% TODO: This is a literature review, where are the sources? 
+The literature also indicates that humor should not be treated as a scalar property. A text may satisfy the topic, use a recognizable humorous structure, and still fail in perceived funniness. Conversely, a joke can be funny but violate the intended prompt. For this reason, multi-dimensional evaluation is common in the most recent work. As will be discussed later, this has direct implications for both data construction and reward design.
+
+% TODO: Maybe add here a little about attempts at humor theories (list some of them with sources) - there is a multitude of them, but none can exhaust the subject, and they are rarely used in computational humor research, however there are some theory-guided attempts (like that paper on theory-guided agent). 
+
+\section{Recent work on humor generation and evaluation}
+
+% TODO: This paper is not sufficiently covered, it is very hard to understand what it is about and why it is significant, too broad
+The recent generation of humor papers is notable for moving beyond simple pun generation toward richer creative tasks. \citet{Zhang2024HumorAI} introduce a large-scale preference collection for cartoon captioning and show that even strong systems remain below human performance. Their study is important for the present thesis for two reasons. First, it confirms that humor datasets require large-scale judgment collection to obtain meaningful comparisons. Second, it shows that direct preference optimization is attractive in principle, but difficult in practice because humor judgments are highly variable.
+
+\citet{Sakabe2025} analyze large language models in the Oogiri setting, where humor is evaluated along multiple dimensions rather than a single funniness score. Their results suggest that language models can sometimes imitate the form of humor while missing deeper social and contextual understanding. This matters for the thesis because it warns against assuming that an LLM judge is an adequate substitute for human preference in all cases. A model can produce or reward humor that is internally plausible for the model distribution while being weak or unnatural for human readers.
+
+\citet{Kim2025} argue that effective AI humor generation requires a combination of cognitive, social, and creative skills. Their framing is useful because it connects humor quality to intermediate competencies rather than to isolated outputs alone. If humor indeed depends on structured skill composition, then the temptation to use multi-step generation pipelines becomes understandable.
+
+That temptation is visible in agentic and theory-guided systems. \citet{Tikhonov2024} show that multistep reasoning can improve humor generation by explicitly separating association, narrative construction, and refinement. \citet{ZhangJ2025} extend this idea to multimodal humor and argue that structured reasoning chains grounded in humor theory improve both interpretability and preference outcomes. The common message is consistent: humor generation benefits when the model is pushed to reason over alternatives instead of producing the first likely continuation.
+
+At the same time, these works expose a limitation. Their gains come from carefully designed architectures that encode a preferred reasoning script. Such systems are powerful demonstrations, but they do not answer a more general question: can the model learn \emph{how} to reason for humor without the reasoning path being fully prescribed in advance? That question motivates the shift from agentic inference toward post-training.
+
+\section{Why supervised fine-tuning is not enough}
+
+The most straightforward way to improve humor generation is supervised fine-tuning on a large joke corpus. This is also the most misleading. Humor datasets are rich in repeated themes, familiar wordplay, and common rhetorical forms. An SFT objective rewards the model for matching observed text tokens, not for searching for new but appropriate punchlines. In other words, SFT encourages imitation of local surface regularities, which is useful for style retention but insufficient for creative generalization.
+
+Recent post-training work outside humor strengthens this concern. \citet{Chu2025} compare SFT and reinforcement learning across a range of post-training settings and conclude that the two procedures optimize different behaviors. Their core finding is summarized by the title of the paper itself: SFT tends to memorize, whereas RL tends to generalize. For humor generation, this contrast is especially consequential. A memorizing model can easily learn common joke shells such as ``X walked into a bar'' or ``my favorite Y is Z,'' yet still fail to respond creatively to weak or unfamiliar prompts.
+
+The issue is not just repetition, but mode collapse toward safe forms. In humor, safe often means unfunny. A model that repeatedly chooses the least risky lexical pattern may produce text that looks joke-like while never achieving genuine surprise. This is one reason why evaluating humor with reference overlap or next-token likelihood alone is inadequate.
+
+\section{RLHF, RLAIF, and their limitations for humor}
+
+If SFT is weak, one might expect RLHF to solve the problem by optimizing directly for human preference. In principle, that is plausible. In practice, humor is a difficult domain for preference-based RL because the reward signal is both expensive and noisy. \citet{Zhang2024HumorAI} demonstrate the scale of annotation needed for competitive humor benchmarking, and even then the resulting preferences remain variable. Humor judgments depend on audience, timing, culture, and subjective taste. Low inter-annotator agreement is not merely a nuisance; it is a structural property of the domain.
+
+The instability of preference modeling is further contextualized by work such as \citet{Gao2023}, who study reward-model overoptimization. Their findings are not specific to humor, but the implication is clear: once the reward model is imperfect, optimizing too aggressively against it can push the policy into artifacts that exploit the reward rather than improve the target behavior. A domain with noisy labels and ambiguous targets is especially vulnerable to this failure mode.
+
+Replacing human annotators with LLM judges appears attractive because it scales much better. Yet recent humor-specific evidence suggests caution. \citet{Sakabe2025} find meaningful divergences between model judgments and human judgments in humor evaluation. For a thesis about verifier-free learning, this is a crucial warning sign. If the judge does not understand humor in a human-aligned way, then scaling the judge may only scale the misalignment.
+
+This does not mean LLM judges are useless. Rather, it means they should be treated as instruments with a defined scope. In the current codebase, pairwise LLM judging is implemented as an evaluation tool, not as the core training reward. That design choice is deliberate.
+
+\section{Reasoning-oriented post-training}
+
+Reasoning-focused post-training has advanced rapidly in domains where verification is available. \citet{DeepSeek2025} show that reinforcement learning can elicit long-form reasoning behavior without relying exclusively on human-authored chains of thought. Their work is especially relevant because it suggests that reasoning traces need not always be injected as demonstrations; they can emerge when the objective makes them useful.
+
+Earlier prompting research already indicated that language models can benefit from intermediate reasoning. \citet{Wei2022} show that chain-of-thought prompting improves performance on multiple reasoning benchmarks when sufficiently large models are used. Although humor is not among their tasks, the broader lesson applies: intermediate textual reasoning can change model behavior in a meaningful way.
+
+Verification, however, is the key difference between mathematics and humor. Process-supervision work such as \citet{Lightman2023} relies on the availability of reasoning steps that can be evaluated or compared. In humor generation, the reasoning process may be valuable, but there is usually no objective verifier that can declare a joke correct in the same way that a math solution can be checked.
+
+\section{Verifier-free reinforcement learning}
+
+The absence of a symbolic verifier has motivated several recent attempts to extrapolate reasoning RL into more general domains. \citet{Zhou2025} propose VeriFree, which replaces the explicit verifier reward with the model's own conditional probability of the reference answer given the prompt and reasoning trace. The key conceptual move is elegant: when there is a single gold answer, maximizing the probability of that answer under the policy-conditioned reasoning trace is scalar-equivalent to maximizing the expected indicator reward of generating the answer exactly.
+
+\citet{Yu2025} propose RLPR and show that intrinsic model probabilities can act as a reward signal in general domains if sufficient variance control is introduced. Their work is particularly important because it demonstrates competitive performance across several benchmarks and argues that verifier-free methods are not merely theoretical curiosities.
+
+For the purposes of humor generation, however, both approaches inherit a serious assumption from the tasks they target: the presence of a single or effectively single correct reference. Humor rarely satisfies this assumption. A weak prompt such as ``write a joke about atheism'' or ``write a joke using prophet'' does not have one valid completion. It has many, and the observed dataset is only a partial sample from that larger set.
+
+This is the point at which humor becomes methodologically useful rather than merely difficult. It forces the verifier-free literature to confront a case where multi-reference ambiguity is not noise but the essence of the task.
+
+\section{Research gap}
+
+The literature reviewed above leaves an identifiable gap.
+
+First, humor-generation studies show that explicit multistep reasoning is useful, yet they mostly encode that reasoning through hand-designed pipelines \citep{Tikhonov2024,ZhangJ2025,Kim2025}. Second, post-training work shows that reinforcement learning can elicit reasoning behavior, but the strongest formulations depend on verifiable tasks or on single-reference assumptions \citep{DeepSeek2025,Zhou2025,Yu2025}. Third, humor-specific evaluation research shows that both human and model judgments are noisy, making direct RLHF or RLAIF an unstable foundation \citep{Zhang2024HumorAI,Sakabe2025}.
+
+Therefore, the unresolved problem is not only ``how to optimize humor,'' but more specifically ``how to formulate a reasoning-oriented objective for humor when multiple valid outputs exist and the reference set is incomplete.'' The thesis addresses this gap by combining two levels of work:
+\begin{itemize}
+  \item a \emph{software level}, where joke corpora are transformed into weak prompts with multiple retrieved references;
+  \item a \emph{theoretical level}, where verifier-free reinforcement learning is extended from a single reference to a multi-reference setting.
 \end{itemize}
 
-\textbf{Memorization is a symptom of SFT, RL may help generalization.} A recurrent problem of SFT is memorization and imitation of frequent patterns from training data rather than generalization. Recent research in post-training methods suggests that RL objectives help generalize where SFT fails.
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Chu, Tianzhe et al. (2025). ``Sft memorizes, rl generalizes: A comparative study of foundation model post-training.''
-  \item Gao, Leo et al. (2023). ``Scaling laws for reward model overoptimization.''
+The result is not yet a final training study. It is a preliminary thesis in the exact sense required by the current project stage: the data and evaluation infrastructure is implemented, the formal objective is specified, and the pilot analysis shows what is promising and what still needs to be validated.
+
+\chapter{Methodology}
+
+\section{Research design and current implementation status}
+
+The methodology of this thesis is intentionally layered. The final target of the overall project is a trained humor-generation model optimized with a multi-reference verifier-free reinforcement learning objective. However, the current repository does not yet contain that final training stage. The file \texttt{src/pipelines/training.py} is still empty, while the surrounding infrastructure for data construction and evaluation is implemented. For that reason, the methodology chapter is divided into two interconnected parts:
+\begin{enumerate}
+  \item the \emph{implemented pilot pipeline}, which is already present in code and can be analyzed empirically;
+  \item the \emph{formal MRVF training objective}, which is specified in mathematical form as the next research stage.
+\end{enumerate}
+
+This distinction is essential for academic honesty. The thesis should not describe unimplemented reinforcement-learning experiments as completed work. Instead, it should show that the implemented pipeline produces the intermediate artifacts required for those experiments and that the theoretical objective is aligned with the structure of those artifacts.
+
+At a high level, the implemented system proceeds through the following stages:
+\begin{enumerate}
+  \item collect and normalize a large joke corpus;
+  \item generate text embeddings for jokes;
+  \item extract salient keywords from each joke using embedding-guided selection;
+  \item form weak prompts from one-keyword and two-keyword groups;
+  \item retrieve multiple candidate references for each prompt using a FAISS index over joke embeddings;
+  \item split the resulting prompt-reference dataset into train, validation, and test partitions;
+  \item generate model outputs for a given set of prompts;
+  \item evaluate those outputs via pairwise comparison and Bradley--Terry style aggregation.
+\end{enumerate}
+
+This pipeline already embodies the operational core of the thesis: it transforms isolated jokes into a many-to-many training and evaluation structure. The current pilot therefore serves as a feasibility study for the later reinforcement-learning stage.
+
+\section{Source corpora and preprocessing}
+
+The empirical base of the project is a merged corpus built from two publicly available joke collections:
+\begin{itemize}
+  \item Short Jokes, downloaded from the \texttt{short-jokes-dataset} repository;
+  \item rJokes, downloaded from the \texttt{rJokesData} repository.
 \end{itemize}
 
-\textbf{RLHF for humor is limited by unreliable reward and annotation noise.} Standard RLHF relies on preference supervision and reward modeling. For humor, the underlying preference signal has high variance and low inter-annotator agreement, resulting in unstable training and poor final quality.
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Zhang, Jifan et al. (2024). ``Humor in ai: Massive scale crowd-sourced preferences and benchmarks for cartoon captioning.''
+The \texttt{JokesPipeline} module downloads the raw files, converts them to parquet, preserves source metadata, and assigns global integer identifiers. In the current local repository state, the merged corpus contains 664{,}048 jokes in total. Table~\ref{tab:corpora} summarizes the exact counts extracted from the local data artifacts.
+
+\begin{table}[ht]
+  \centering
+  \caption{Source corpora in the local repository state}
+  \label{tab:corpora}
+  \begin{tabular}{lrr}
+    \toprule
+    Source      & Number of jokes & Share of total \\
+    \midrule
+    Short Jokes & 231{,}657       & 34.9\%         \\
+    rJokes      & 432{,}391       & 65.1\%         \\
+    \midrule
+    Total       & 664{,}048       & 100.0\%        \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The two sources are complementary. Short Jokes contains many compact one-liners, while rJokes includes a broader range of narrative formats and internet-style setups. Their combination is useful because the later reference-retrieval stage benefits from topical and stylistic redundancy: repeated motifs increase the chance that several different jokes can answer the same weak prompt.
+
+The preprocessing stage is intentionally conservative. The implementation preserves the original text, source name, source filename, and source-local identifier. No aggressive normalization is performed beyond stripping empty rows, because excessive normalization would risk removing stylistic cues that are important for humor.
+
+\section{Embedding generation}
+
+The first implemented transformation after corpus assembly is dense embedding generation. The \texttt{EmbeddingsPipeline} uses the model \texttt{qwen/qwen3-embedding-8b} with 1{,}024-dimensional output vectors. Embeddings are generated asynchronously in batches and stored in parquet shards. This stage serves two roles:
+\begin{itemize}
+  \item it supports later keyword selection by measuring similarity between a joke embedding and candidate keyword embeddings;
+  \item it provides the vector index used for reference retrieval.
 \end{itemize}
 
-\textbf{RLAIF for humor is unreliable because LLM judges do not match human humor understanding.} Replacing human preferences with LLMs (RLAIF) is an great opportunity for scaling, but research shows model-based evaluation can systematically deviate from human preferences. As a result, the reward signal may become critically misaligned.
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Sakabe, Ritsu et al. (2025). ``Assessing the Capabilities of LLMs in Humor: A Multi-dimensional Analysis of Oogiri Generation and Evaluation.''
-\end{itemize}
+The current local state contains 10{,}005 embedded jokes. This number is much smaller than the full raw corpus size, which indicates that the pilot has so far been run on a limited subset. This is not a defect; it is a reminder that the current thesis is preliminary and reports a pilot implementation rather than a final large-scale experiment.
 
-\textbf{Agentic systems show promise for humor generation.} In contrast to single-turn generation, multi-turn pipelines explicitly imitate creative practices. They generate associations, build narratives, draft and refine candidates. This allows them to yield better results, bridging the gap with humans in evaluation.
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Tikhonov, Alexey and Shtykovskiy, Pavel (2024). ``Humor mechanics: Advancing humor generation with multistep reasoning.''
-  \item Zhang, Jiajun et al. (2025). ``HUMORCHAIN: Theory-Guided Multi-Stage Reasoning for Interpretable Multimodal Humor Generation.''
-  \item Kim, Sean and Chilton, Lydia B (2025). ``AI Humor Generation: Cognitive, Social and Creative Skills for Effective Humor.''
-\end{itemize}
+\section{Keyword extraction as a prompt approximation}
 
-\textbf{Agentic systems are architecturally restrictive.} Multi-turn approaches effectively simulate creative reasoning, but they hard-code the reasoning structure (number of steps, branching strategy, theory choices). Different pipelines vary substantially, making it unclear which architectural decisions are fundamental and which are incidental. This motivates an alternative direction: rather than prescribing a reasoning procedure, attempt to train models to decide how to reason on their own.
+The original research note proposed an inversion procedure in which a language model would rewrite each joke into one or several plausible prompts. The current implementation takes a different, more engineering-oriented route. Instead of using a generative inversion model, it approximates weak prompts through salient keywords extracted from each joke.
 
-\textbf{DeepSeek-R1 suggests that RL can elicit diverse, unrestricted reasoning.} Recent work on reasoning-oriented post-training shows that RL with verifiable rewards (RLVR) can elicit complex thinking behaviors without relying on human-authored CoT. This supports the idea that reasoning patterns do not have to be explicitly scripted in an agentic framework, they can emerge from the optimization objective.
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Guo, Daya et al. (2025). ``Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning.''
-  \item Lightman, Hunter et al. (2023). ``Let's verify step by step.''
-\end{itemize}
+This approximation is implemented in \texttt{KeywordsPipeline}. The procedure is as follows:
+\begin{enumerate}
+  \item tokenize each joke into unigram candidates with a \texttt{CountVectorizer};
+  \item remove stop words and retain at most 64 candidate tokens per joke;
+  \item embed each candidate token using the same embedding family used for joke embeddings;
+  \item compute cosine similarity between the joke embedding and each candidate embedding;
+  \item select the top 3 candidates using maximal marginal relevance (MMR) with diversity coefficient 0.7.
+\end{enumerate}
 
-\textbf{Current reasoning models are biased towards verifiable domains.} Empirically, many models refuse to sustain long reasoning when prompted with creative tasks, such as comedy writing. They often produce an early generic joke, most likely memorized from training data. When extended reasoning does occur through CoT prompting, it resembles human creative practices (consistent with the research on agentic systems): searching premises, exploring associations, iterating over formats, etc. Consequently, the outputs are often better, although the gap to remains large. A plausible explanation to the refusal is a training-induced bias: reasoning post-training is conducted in verifiable domains, such as math and code, so models learn a policy that does not transfer well to non-verifiable domains, such as humor.
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Wei, Jason et al. (2022). ``Chain-of-thought prompting elicits reasoning in large language models.''
-\end{itemize}
+The logic behind this design is straightforward. A purely frequency-based keyword extractor would prefer common tokens that are not semantically central to the joke. A purely similarity-based selector would risk choosing near-duplicates. The MMR step balances relevance and diversity, so that the final keyword set is short but not redundant.
 
-\textbf{Models can learn to reason without verifiers.} Recent work proposes alternatives that extend RLVR to domains without verifiers by using intrinsic model probabilities. Generally, non-verifiable tasks would require generating reasoning, an answer and running an arbitrary procedure (e.g., LLM-as-a-judge) to compare it with ground truth. Approaches like VeriFree and RLPR calculate rewards based on the likelihood of a reference  given reasoning. It is a convenient approach from the computational standpoint because it .... Surprisingly, evaluation showed comparable or better results to RLVR checkpoints. These methods are candidates for adapting reasoning RL to humor generation, however there are a few limitations.
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Zhou, Xiangxin et al. (2025). ``Reinforcing General Reasoning without Verifiers.''
-  \item Yu, Tianyu et al. (2025). ``RLPR: Extrapolating RLVR to General Domains without Verifiers.''
-\end{itemize}
-
-\textbf{Reasoning in creative domains is limited by multiple and partial references.} Creavity requires novelty and diversity by its very definition. In humor, there are multiple valid outputs for the same constraint, and any dataset contains only a partial subset of them. This violates the single-reference assumption used in VeriFree to prove mathematical equivalence to RLVR. The methodological contribution of this paper is to extend VeriFree to the multi-reference and partially observed case, with explicit analysis of the statistical consequences of such assumptions, and to test if this procedure can elicit reasoning for humor generation.
-
-\section{Methodology}
-
-\subsection{Dataset collection}
-The idea is to convert jokes into prompts that represent weak constraints or seeds so that each prompt has multiple plausible joke references.
-
-\textbf{Sources.} Large text joke dataset, e.g. Short Jokes (\,\(\sim\)\,270k) and rJokes (\,\(\sim\)\,550k). They offer broad topic coverage and many repeated keywords, making them ideal for constructing multi-reference prompts.
-
-\textbf{Prompt extraction.} For each joke \(y\), use a model (e.g, GPT, DeepSeek, Qwen) to generate \(1\!-\!3\) prompts \(x\) that the joke can plausibly answer. Consider this joke from rJokes: ``Atheism is a non-prophet organization''. The possible prompts are:
-\begin{itemize}[leftmargin=1.5em]
-  \item ``Write a pun using the word prophet''
-  \item ``Write a joke about atheism''
-\end{itemize}
-Model should be instructed to identify the premise, analyze the topic and structure of the joke, and choose relevant constraints (backtracking). This is important to avoid incoherent prompts, such as ``write a joke about an organization'', that do not preserve the original comedic mechanism.
-
-\textbf{Inversion.} After prompts are extracted from the corpus of jokes, group jokes by identical or near-identical prompts. The outcome is a dataset of pairs \( (x,\; Y^{*}(x)) \), where \( Y^{*}(x)=\{y_1,\dots,y_n\} \) are jokes matching the seed \( x \). This produces the key structural condition needed for multi-reference learning.
-
-\textbf{Distribution issues.} The prompt distribution will likely be heavy-tailed: some prompts map to many jokes (popular topics and common mechanisms, e.g. puns), others to unique jokes (obscure ideas and rare joke structures). Rather than discarding one or the other, the plan is to use stratified sampling with temperature reweighting at training time.
-
-\subsection{Theoretical framework}
-\subsubsection{Notation}
-Following the notation used in reasoning RL research, define:
-\begin{itemize}[leftmargin=1.5em]
-  \item \(x\): prompt (constraint).
-  \item \(z\): reasoning trace sampled by the policy (text within \( <think> \) and \( </think> \) tags).
-  \item \(y\): answer sampled by the policy (text after \( </think> \) tag).
-  \item \(y^{*}\): reference answer.
-  \item Policy factorization:
-\end{itemize}
+Formally, for a joke \(j\) with embedding \(e(j)\) and a set of candidate keyword embeddings \(\{e(k_1), \dots, e(k_m)\}\), the relevance score is the cosine similarity
 \[
-  \pi_\theta(z,y\mid x)=\pi_\theta(z\mid x)\;\pi_\theta(y\mid x,z).
+  s_{\text{rel}}(k_i, j)=\frac{e(k_i)\cdot e(j)}{\|e(k_i)\|\|e(j)\|}.
+\]
+MMR then selects the next keyword by maximizing a trade-off between relevance and novelty relative to previously selected keywords.
+
+The practical output of this stage is a short list of tokens or short phrases, usually of length three per joke in the current pilot. Across the 1{,}005 jokes that have already passed through this stage, the average number of retained keywords is 2.99, which means that nearly every joke yields a full three-keyword representation.
+
+This stage deserves a careful interpretation. It does \emph{not} recover the full latent intent of the joke. Instead, it provides a weak semantic handle that can later be expanded into reference sets. For a preliminary thesis, this compromise is acceptable because the immediate goal is not to solve prompt inversion perfectly, but to build a tractable multi-reference training substrate.
+
+\section{Prompt construction and reference retrieval}
+
+\subsection{Weak prompts}
+
+Once keywords are extracted, the \texttt{ReferencesPipeline} creates one-keyword and two-keyword groups for each joke. If a joke produces the keyword set \(K(x)=\{k_1,k_2,k_3\}\), the implementation generates all combinations whose size lies between the configured minimum and maximum:
+\[
+  \mathcal{G}(K)=\{ \{k_1\}, \{k_2\}, \{k_3\}, \{k_1,k_2\}, \{k_1,k_3\}, \{k_2,k_3\}\}.
+\]
+Each keyword group is rendered into a natural-language prompt using the template
+\begin{quote}
+  \ttfamily
+  Write a joke using the following keyword(s): \{keywords\}
+\end{quote}
+
+This design is simple, but it creates a useful hierarchy of prompt specificity. One-keyword prompts are broad and ambiguous. Two-keyword prompts are narrower and better suited to retrieving semantically compatible references. The pilot intentionally excludes three-keyword prompts from retrieval because the resulting prompts would often be too specific and therefore less likely to admit multiple distinct answers.
+
+\subsection{Reference retrieval}
+
+The retrieval index is built over the embedded joke collection using FAISS with an IVF Flat inner-product index. The main configuration values used in the current pilot are:
+\begin{itemize}
+  \item embedding model: \texttt{qwen/qwen3-embedding-8b};
+  \item dimensionality: 1{,}024;
+  \item number of lists (\texttt{nlist}): 4{,}096;
+  \item probe count (\texttt{nprobe}): 32;
+  \item top-\(k\) references retained after masking: 5;
+  \item minimum similarity threshold: 0.5;
+  \item oversampling during search: 10 additional candidates.
+\end{itemize}
+
+For a prompt \(x\) derived from a keyword group, the system embeds the textual prompt, searches the FAISS index, filters low-similarity items, and keeps up to five nearest jokes as references. If the retrieved references are denoted \(Y^{*}(x)=\{y_1,\dots,y_n\}\), then in the pilot implementation \(n\) is bounded above by 5 and may be smaller or even zero after filtering.
+
+The resulting dataset can be written as
+\[
+  \mathcal{D}_{\text{ref}}=\{(x_i, Y^{*}(x_i))\}_{i=1}^{N},
+\]
+where \(x_i\) is a weak keyword-based prompt and \(Y^{*}(x_i)\) is the set of retrieved joke references associated with it.
+
+\subsection{Deduplication and data splitting}
+
+An important post-processing step deduplicates rows by keyword group. This matters because different source jokes can generate the same weak prompt. Without deduplication, the final dataset would overcount prompt forms that happen to arise frequently in the seed subset.
+
+After deduplication, the dataset is split into training, validation, and test sets with fractions 0.8, 0.1, and 0.1 respectively (implemented through successive train-test splits with a fixed random seed). The exact statistics of this pilot split are discussed in Chapter 3.
+
+\section{Candidate generation and evaluation infrastructure}
+
+Although the main training stage is not yet implemented, the repository already contains the components needed to benchmark future models once they exist.
+
+\subsection{Candidate generation}
+
+The \texttt{CandidatesPipeline} takes prompt rows from the reference dataset and asks a generation model to produce jokes. In the current configuration, the default generator is \texttt{gpt-4.1-mini} with temperature 1.0 and a cap of 128 completion tokens. The prompt is the same reference prompt used during retrieval:
+\begin{quote}
+  \ttfamily
+  Write a joke using the following keyword(s): \{keywords\}
+\end{quote}
+
+This uniform prompting strategy is useful because it isolates the effect of the model rather than the effect of extensive prompt engineering. At the same time, it means that future results will need to be interpreted as a property of the model-and-prompt pair, not of the model alone.
+
+\subsection{Pairwise evaluation}
+
+The \texttt{EvaluationPipeline} compares model outputs pairwise for the same prompt. Each pair is judged by a language-model evaluator, again configured as \texttt{gpt-4.1-mini} in the current local setup. The system prompt asks the judge to choose which joke is funnier for a general audience and explicitly forbids ties. After collecting pairwise winners, the pipeline aggregates the results into a leaderboard using a Bradley--Terry style score estimation procedure.
+
+This evaluation design matches the literature better than absolute rating scales. Humor is often easier to compare than to score in isolation. Pairwise comparison reduces some scale-calibration problems and can later be combined with human annotation if the project moves beyond LLM judging.
+
+The crucial limitation is that this evaluation infrastructure is implemented, but no committed evaluation artifacts are currently present in the repository. Therefore, the thesis can describe the methodology and planned use of the evaluator, but it cannot honestly claim completed benchmark results from this module yet.
+
+\section{Formalizing multi-reference verifier-free reinforcement learning}
+
+\subsection{Notation}
+
+The formal part of the thesis follows the notation commonly used in reasoning-RL research. Let
+\begin{itemize}
+  \item \(x\) denote the prompt;
+  \item \(z\) denote a reasoning trace produced by the policy;
+  \item \(y\) denote the final answer produced by the policy;
+  \item \(y^{*}\) denote a single reference answer;
+  \item \(Y^{*}(x)\) denote a set of acceptable reference answers for prompt \(x\).
+\end{itemize}
+
+The policy is factorized as
+\[
+  \pi_{\theta}(z,y\mid x)=\pi_{\theta}(z\mid x)\pi_{\theta}(y\mid x,z).
 \]
 
-\subsubsection{RLVR}
-Assume there is a single verifiable reference answer \(y^{*}\) per prompt \(x\). Define the verifier reward:
+This factorization is conceptually useful even if the underlying language model generates a single text stream. It separates the reasoning trace from the final answer and clarifies which terms are being optimized by the reward.
+
+\subsection{RL with verifiable rewards}
+
+If a symbolic verifier exists and there is exactly one correct answer \(y^{*}\), then the reward can be written as
 \[
   R(y,y^{*})=\mathbb{I}\{y=y^{*}\}.
 \]
-The RLVR objective is:
+The expected objective is
 \[
-  J_{\text{RLVR}}(\theta\mid x,y^{*})=\mathbb{E}_{z\sim\pi_\theta(z\mid x)}\;\mathbb{E}_{y\sim\pi_\theta(y\mid x,z)}\big[R(y,y^{*})\big].
-\]
-Gradient can be obtained directly or using REINFORCE, i.e. the following score-function identity:
-\[
-  \nabla_\theta \mathbb{E}_{u\sim p_\theta(u)}[f(u)] = \mathbb{E}_{u\sim p_\theta(u)}\big[f(u)\nabla_\theta \log p_\theta(u)\big].
-\]
-Apply it to the joint distributino of \((z,y)\):
-\[
-  \nabla_\theta J_{\text{RLVR}}
-  =\mathbb{E}_{z,y}\Big[R(y,y^{*})\;\nabla_\theta\log \pi_\theta(z,y\mid x)\Big].
-\]
-Using the factorization:
-\[
-  \nabla_\theta\log \pi_\theta(z,y\mid x)=\nabla_\theta\log \pi_\theta(z\mid x)+\nabla_\theta\log \pi_\theta(y\mid x,z).
-\]
-Hence the gradient becomes:
-\[
-  \nabla_\theta J_{\text{RLVR}}
-  =\mathbb{E}_{z,y}\Big[R(y,y^{*})\big(\nabla_\theta\log \pi_\theta(z\mid x)+\nabla_\theta\log \pi_\theta(y\mid x,z)\big)\Big].
+  J_{\text{RLVR}}(\theta\mid x,y^{*})=\mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
+  \mathbb{E}_{y\sim\pi_{\theta}(y\mid x,z)}[R(y,y^{*})].
 \]
 
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Guo, Daya et al. (2025). ``Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning.''
-\end{itemize}
-
-\subsubsection{VeriFree}
-
-Assume there is a single reference answer \(y^{*}\) per prompt \(x\). This time verifier is not available. Note that \(\mathbb{E}_{y}[\mathbb{I}\{y=y^{*}\}]=P(y=y^{*})=\pi_\theta(y^{*}\mid x,z)\). Hence, RLVR objective can be rewritten as:
+Using the score-function identity,
 \[
-  J_{\text{RLVR}}(\theta\mid x,y^{*})=\mathbb{E}_{z\sim\pi_\theta(z\mid x)}\big[\pi_\theta(y^{*}\mid x,z)\big]
+  \nabla_{\theta}\mathbb{E}_{u\sim p_{\theta}(u)}[f(u)]
+  =
+  \mathbb{E}_{u\sim p_{\theta}(u)}\big[f(u)\nabla_{\theta}\log p_{\theta}(u)\big],
 \]
-Using the previous identity, define the verifier-free reward:
+the policy gradient becomes
 \[
-  r_\theta(x,z,y^{*}) := \pi_\theta(y^{*}\mid x,z).
-\]
-Then VeriFree objective is:
-\[
-  J_{\text{VF}}(\theta\mid x,y^{*}) := \mathbb{E}_{z\sim\pi_\theta(z\mid x)}\big[r_\theta(x,z,y^{*})\big]
-  = \mathbb{E}_{z\sim\pi_\theta(z\mid x)}\big[\pi_\theta(y^{*}\mid x,z)\big].
-\]
-So \(J_{\text{VF}} \equiv J_{\text{RLVR}}\) in scalar sense under the single-reference assumption. The key practical benefit: no decoding of \(y\) is required and calculation of \(\pi_\theta(y^{*}\mid x,z)\) is parallelizable.
-
-To explicitly obtain policy gradient of VeriFree, differentiate:
-\[
-  \nabla_\theta J_{\text{VF}}
-  = \nabla_\theta \sum_z \pi_\theta(z\mid x)\; r_\theta(x,z,y^{*}).
-\]
-Product rule:
-\[
-  \nabla_\theta J_{\text{VF}}
-  = \sum_z \Big[\nabla_\theta \pi_\theta(z\mid x)r_\theta(x,z,y^{*}) + \pi_\theta(z\mid x)\nabla_\theta r_\theta(x,z,y^{*})\Big].
-\]
-Use \(\nabla f = f \nabla \log f\):
-\[
-  \nabla_\theta J_{\text{VF}}
-  =\sum_z \pi_\theta(z\mid x)\Big[r_\theta(x,z,y^{*})\nabla_\theta\log \pi_\theta(z\mid x) + \nabla_\theta r_\theta(x,z,y^{*})\Big].
-\]
-Now expand \(\nabla_\theta r_\theta(x,z,y^{*})\):
-\[
-  \nabla_\theta r_\theta(x,z,y^{*}) = r_\theta(x,z,y^{*})\;\nabla_\theta \log r_\theta(x,z,y^{*}) = r_\theta(x,z,y^{*})\;\nabla_\theta \log \pi_\theta(y^{*}\mid x,z).
-\]
-Finally:
-\begin{align*}
-  \nabla_\theta J_{\text{VF}}
-   & = \mathbb{E}_{z\sim\pi_\theta(z\mid x)}\Big[
-    r_\theta(x,z,y^{*})\big(\nabla_\theta\log \pi_\theta(z\mid x)
-    +\nabla_\theta\log \pi_\theta(y^{*}\mid x,z)\big)
+  \nabla_{\theta}J_{\text{RLVR}}
+  =
+  \mathbb{E}_{z,y}
+  \Big[
+    R(y,y^{*})
+    \big(
+    \nabla_{\theta}\log\pi_{\theta}(z\mid x)
+    +
+    \nabla_{\theta}\log\pi_{\theta}(y\mid x,z)
+    \big)
     \Big].
-\end{align*}
-
-\subsubsection{Multi-reference VeriFree}
-For humor and creative domain in general, the single reference assumption fails. Let \(Y^{*}(x)\subset \mathcal{Y}\) be the set of known good references for seed \(x\). Define the multi-reference verified reward:
-\[
-  R(y, Y^{*}) = \mathbb{I}\{y\in Y^{*}\}.
-\]
-Then RLVR objective becomes:
-\[
-  J_{\text{MR}}(\theta\mid x,Y^{*}) = \mathbb{E}_{z}\;\mathbb{E}_{y\sim\pi_\theta(\cdot\mid x,z)}\big[\mathbb{I}\{y\in Y^{*}\}\big].
-\]
-But:
-\[
-  \mathbb{E}_{y}\mathbb{I}\{y\in Y^{*}\} = P(y\in Y^{*}\mid x,z)=\sum_{y\in Y^{*}}\pi_\theta(y\mid x,z).
-\]
-Then define the set version of verifier-free reward:
-\[
-  r_\theta(x,z,Y^{*}) := \sum_{y\in Y^{*}}\pi_\theta(y\mid x,z).
-\]
-This quantity is a valid probability in \([0,1]\). It is the probability of the event that the generated answer lands inside the reference set, or the union of correct completion events.
-
-Therefore:
-\[
-  J_{\text{MRVF}}(\theta\mid x,Y^{*})=\mathbb{E}_{z\sim\pi_\theta(z\mid x)}\big[r_\theta(x,z,Y^{*})\big].
 \]
 
-Policy gradient is equivalent to VF up to reward formulation.
+This expression is standard in reasoning-RL settings and is the point of departure for verifier-free reformulation.
 
-\subsubsection{The Consequences of Incompleteness}
-Another problematic property of references in the creative domain is incompleteness. It is impossible to reliably exhaust all possibilities. It is plausible that there exist good jokes not present in the reference set. Also, computing \(\sum_{y\in Y^{*}}\pi_\theta(y\mid x,z)\) may be expensive when \(|Y^{*}|\) is large. A natural approximation is to sample a subset \(Y\subset Y^{*}\) uniformly without replacement, and use:
-\[
-  r_\theta(x,z,Y) := \sum_{y\in Y}\pi_\theta(y\mid x,z).
-\]
-To answer how good this estimate is, let each \(y\in Y^{*}\) have inclusion probability \(\rho=P(y\in Y)=\frac{|Y|}{|Y^{*}|}\). Then:
-\[
-  \mathbb{E}_Y[r_\theta(x,z,Y)]
-  = \mathbb{E}_Y\Big[\sum_{y\in Y^{*}}\mathbb{I}\{y\in Y\}\pi_\theta(y\mid x,z)\Big]
-  = \sum_{y\in Y^{*}}P(y\in Y)\pi_\theta(y\mid x,z)
-  = \rho\sum_{y\in Y^{*}}\pi_\theta(y\mid x,z).
-\]
-Finally:
-\[
-  r_\theta(x,z,Y)=\rho\; r_\theta(x,z,Y^{*}).
-\]
-So the estimate is unbiased up to a constant scale \(\rho\) and simple reward standardization can eliminate  bias. For example, Group-Relative Policy Optimization (GRPO) uses standardization to stabilize training. This fact will be useful later in training procedure formulartion.
+\subsection{VeriFree}
 
-... What about consistency and efficiency?
-
-Another issue with this estimate is the gradient. Optimizing \(r_\theta=\sum_{y\in Y^{*}}\pi_\theta(y\mid x,z)\) increases probability mass on observed references. But since \(\sum_{y\in\mathcal{Y}}\pi_\theta(y\mid x,z)=1\), increasing mass on \(Y^{*}\) necessarily decreases mass on \(\mathcal{Y}\setminus Y^{*}\), which contains both bad jokes and unknown good jokes. This is the fundamental false-negative risk.
-
-Kullback-Leibler Divergence (\(\mathrm{KL}\)) can be used to reduce unwanted mass reallocation. Optimization problem with constrained optimization:
+\citet{Zhou2025} observe that under the single-reference assumption,
 \[
-  \max_\theta\; \mathbb{E}_{x,z}\big[r_\theta(x,z,Y^{*}(x))\big]
-  \quad\text{s.t.}\quad
-  \mathbb{E}_{x}\big[\mathrm{KL}(\pi_\theta(\cdot\mid x)\;\|\;\pi_{\text{ref}}(\cdot\mid x))\big]\le \varepsilon.
+  \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}[\mathbb{I}\{y=y^{*}\}]
+  =
+  \pi_{\theta}(y^{*}\mid x,z).
 \]
-The Lagrangian form:
+Therefore, the scalar RLVR objective can be rewritten as
 \[
-  \max_\theta\; \mathbb{E}_{x,z}\big[r_\theta(x,z,Y^{*}(x))\big]
-  \;-\;\beta\;\mathbb{E}_{x}\big[\mathrm{KL}(\pi_\theta(\cdot\mid x)\;\|\;\pi_{\text{ref}}(\cdot\mid x))\big].
-\]
-This addition helps to preserve probability mass over unseen references during reallocation.
-
-\subsubsection{Training Procedure}
-For each prompt \(x\), sample a group of \(G\) latents \(z_1,\dots,z_G\sim \pi_\theta(z\mid x)\). For each \(z_i\), compute a multi-reference reward:
-\[
-  \hat r_i := r_\theta(x,z_i,Y^{*}(x))=\sum_{y\in Y^{*}(x)}\pi_\theta(y\mid x,z_i).
+  J_{\text{VF}}(\theta\mid x,y^{*})
+  =
+  \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}[\pi_{\theta}(y^{*}\mid x,z)].
 \]
 
-Then update:
-\begin{enumerate}[leftmargin=1.8em]
-  \item \textbf{Reasoning term.} Use a group RLOO baseline:
-        \[
-          A_i = \hat r_i - \frac{1}{G-1}\sum_{j\ne i}\hat r_j
-        \]
-        Whence:
-        \[
-          g_z = \frac{1}{G-1} \sum_{i=1}^G A_i \nabla_\theta \log \pi_\theta(z_i\mid x).
-        \]
-        This is the variance-reduction mechanism that is mathematically justified for the score-function term.
+The practical attraction of this objective is that it avoids explicit sampling of the final answer for reward computation. Instead, the model's conditional probability of the reference answer plays the role of the reward.
 
-  \item \textbf{Reference term.} Unlike the reasoning term, baselining here is not unbiased:
-        \[
-          g_{r} = \frac{1}{G-1} \sum_{i=1}^G \hat r_i\nabla_\theta \log \pi_\theta(y\mid x,z_i).
-        \]
+Differentiating this objective yields
+\[
+  \nabla_{\theta}J_{\text{VF}}
+  =
+  \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
+  \Big[
+    r_{\theta}(x,z,y^{*})
+    \big(
+    \nabla_{\theta}\log\pi_{\theta}(z\mid x)
+    +
+    \nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z)
+    \big)
+    \Big],
+\]
+where
+\[
+  r_{\theta}(x,z,y^{*})=\pi_{\theta}(y^{*}\mid x,z).
+\]
 
-  \item \textbf{KL regularization:}
-        \[
-          g_{\text{KL}} = -\beta\nabla_\theta \mathrm{KL}(\pi_\theta(\cdot\mid x)\;\|\;\pi_{\text{ref}}(\cdot\mid x)).
-        \]
+\subsection{Why single-reference assumptions fail for humor}
+
+The single-reference assumption is inappropriate for creative tasks in general and for humor in particular. A prompt such as ``write a joke about atheism'' or ``write a joke using the keyword ears'' has many acceptable answers. If only one observed answer is rewarded, then the training signal treats all alternative good jokes as negatives. This is not a small technical inconvenience; it reverses the intended semantics of the task.
+
+Let \(Y^{*}(x)\subset\mathcal{Y}\) denote the set of known good references for prompt \(x\). Then the natural verified reward becomes
+\[
+  R(y,Y^{*})=\mathbb{I}\{y\in Y^{*}\}.
+\]
+The corresponding multi-reference objective is
+\[
+  J_{\text{MR}}(\theta\mid x,Y^{*})
+  =
+  \mathbb{E}_{z}
+  \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}
+    [\mathbb{I}\{y\in Y^{*}\}].
+\]
+
+Since
+\[
+  \mathbb{E}_{y}[\mathbb{I}\{y\in Y^{*}\}]
+  =
+  \sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z),
+\]
+the verifier-free reward can be generalized to
+\[
+  r_{\theta}(x,z,Y^{*})
+  :=
+  \sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z),
+\]
+and the multi-reference verifier-free objective becomes
+\[
+  J_{\text{MRVF}}(\theta\mid x,Y^{*})
+  =
+  \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}[r_{\theta}(x,z,Y^{*})].
+\]
+
+This objective is the conceptual core of the thesis. It preserves the verifier-free logic of \citet{Zhou2025} but replaces the single completion event with a union of acceptable completion events.
+
+\subsection{Incomplete reference sets}
+
+In humor generation, even the multi-reference set \(Y^{*}(x)\) is still incomplete. The observed references for a prompt are only a subset of the jokes that could legitimately answer it. The repository's reference-construction pipeline makes this visible in practice: some prompts retrieve five strong references, some retrieve only one, and some retrieve none at all.
+
+Suppose a subset \(Y\subset Y^{*}\) is sampled uniformly without replacement and used as the observed reference set. Then the approximate reward is
+\[
+  r_{\theta}(x,z,Y)=\sum_{y\in Y}\pi_{\theta}(y\mid x,z).
+\]
+If each member of \(Y^{*}\) has inclusion probability \(\rho\), then
+\[
+  \mathbb{E}_{Y}[r_{\theta}(x,z,Y)]
+  =
+  \rho
+  \sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z)
+  =
+  \rho\,r_{\theta}(x,z,Y^{*}).
+\]
+
+Therefore the estimate is unbiased up to a constant scaling factor. This scaling is not fatal, especially if group-wise normalization is already used during optimization. The deeper problem is different: increasing mass on observed references also decreases mass on everything outside the observed set, which includes not only bad completions but also unseen good ones.
+
+This false-negative risk motivates regularization. One natural choice is a Kullback--Leibler penalty relative to a reference policy \(\pi_{\text{ref}}\):
+\[
+  \max_{\theta}
+  \;
+  \mathbb{E}_{x,z}[r_{\theta}(x,z,Y^{*}(x))]
+  -
+  \beta
+  \mathbb{E}_{x}\big[
+    \mathrm{KL}(\pi_{\theta}(\cdot\mid x)\|\pi_{\text{ref}}(\cdot\mid x))
+    \big].
+\]
+
+The KL term constrains catastrophic drift and makes it less likely that optimization will overfit the observed reference subset.
+
+\subsection{Training procedure as the next implementation stage}
+
+The intended training loop is not yet implemented in code, but it can be formulated clearly. For each prompt \(x\), sample a group of reasoning traces
+\[
+  z_1,\dots,z_G\sim\pi_{\theta}(z\mid x).
+\]
+For each trace \(z_i\), compute the reward
+\[
+  \hat r_i=r_{\theta}(x,z_i,Y^{*}(x)).
+\]
+
+Then define a leave-one-out baseline
+\[
+  A_i=
+  \hat r_i-\frac{1}{G-1}\sum_{j\neq i}\hat r_j,
+\]
+which is unbiased for the score-function term involving \(z_i\). The reasoning-gradient contribution becomes
+\[
+  g_z=
+  \frac{1}{G}\sum_{i=1}^{G}
+  A_i\nabla_{\theta}\log\pi_{\theta}(z_i\mid x),
+\]
+while the reference-probability term is
+\[
+  g_r=
+  \frac{1}{G}\sum_{i=1}^{G}
+  \hat r_i\nabla_{\theta}\log\pi_{\theta}(Y^{*}(x)\mid x,z_i),
+\]
+with the understanding that the multi-reference log-probability is induced by the summed event mass rather than by a single completion token sequence. The overall update would include the KL penalty:
+\[
+  \nabla_{\theta}J_{\text{MRVF}} \approx g_z + g_r + g_{\text{KL}}.
+\]
+
+This formulation is the theoretical target that justifies the data pipeline built in the repository. The pipeline exists because \(Y^{*}(x)\) must be constructed before \(r_{\theta}(x,z,Y^{*})\) can be estimated.
+
+\section{Research questions and evaluation protocol}
+
+The preliminary thesis is organized around four research questions:
+\begin{enumerate}
+  \item Can a large joke corpus be transformed into weak prompts with multiple associated references rather than one-to-one joke pairs?
+  \item Does the current keyword-and-retrieval approximation produce prompt-reference sets that are large and coherent enough to support future MRVF training?
+  \item What failure modes are already visible in the pilot artifacts before the reinforcement-learning stage begins?
+  \item Which parts of the full training and evaluation procedure are already implemented, and which remain future work?
 \end{enumerate}
 
-Overall policy update:
-\[
-  \nabla_{\theta} J_{\text{MRVF}}(\theta\mid x,Y^{*}(x)) = g_z + g_{r} + g_{\text{KL}}.
-\]
-
-\subsubsection{Note on Baselining}
-Baselines are unbiased in score-function estimators only when the baseline does not depend on the sampled variable whose log-probability gradient is taken.
-
-\begin{itemize}[leftmargin=1.5em]
-  \item For the reasoning term, \(z\sim\pi_\theta(z\mid x)\) is sampled. For any baseline \(b(x)\) independent of \(z\):
-        \[
-          \mathbb{E}_{z\sim\pi_\theta}\big[b(x)\nabla_\theta\log\pi_\theta(z\mid x)\big]
-          = b(x)\nabla_\theta\sum_z \pi_\theta(z\mid x)=b(x)\nabla_\theta 1=0.
-        \]
-        So we can replace reward \(r_\theta\) by advantage \(A_\theta:=(r_\theta-b(x))\) in the reasoning term term without bias.
-
-  \item For the reference term, \(y\) is not sampled. The gradient \(\nabla_\theta\log\pi_\theta(y^{*}\mid x,z)\) is not under an expectation over \(y\sim \pi_\theta(\cdot\mid x,z)\). Therefore, there is no identity like \(\mathbb{E}_{y}[\nabla\log\pi(y)]=0\) to eliminate bias:
-        \[
-          \mathbb{E}_z\big[(r_\theta-b(x))\nabla\log\pi_\theta(y^{*}\mid x,z)\big]
-          = \mathbb{E}_z\big[r_\theta\nabla\log\pi_\theta(y^{*}\mid x,z)\big] - b(x)\,\mathbb{E}_z\big[\nabla\log\pi_\theta(y^{*}\mid x,z)\big],
-        \]
+These questions imply a two-level evaluation protocol. The present thesis evaluates the pilot by descriptive statistics and qualitative analysis of prompt-reference sets. The final thesis should extend this with model-level comparisons across at least four dimensions inspired by recent humor-evaluation work \citep{Sakabe2025,Hashemi2024,Gunjal2025}:
+\begin{itemize}
+  \item prompt adherence;
+  \item novelty;
+  \item human-likeness;
+  \item funniness.
 \end{itemize}
 
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Zhou, Xiangxin et al. (2025). ``Reinforcing General Reasoning without Verifiers.''
-\end{itemize}
+For now, the methodological contribution is to make this later benchmark meaningful by first constructing the prompt-reference substrate on which it would depend.
 
-\section{[WIP] Experiments}
+\chapter{Results and Discussion}
 
-\subsection{Baselines}
+\section{Overview of the implemented pilot}
 
-The models used in experiments are from Qwen3 family, namely in 1.7B, 4B and 8B sizes and the following checkpoints:
-\begin{enumerate}[leftmargin=1.8em]
-  \item Base
-  \item Instruct
-  \item Thinking
-  \item MRVF over Base
+The main result of the current project stage is not a trained humor model. It is a working pilot pipeline that operationalizes the thesis idea at the data and evaluation levels. This result is more substantial than it may initially appear. In a non-verifiable domain, data construction is not a trivial preprocessing step; it is part of the method itself. If the data representation is wrong, the reinforcement-learning objective will optimize the wrong behavior.
+
+The implemented pilot already demonstrates five important facts:
+\begin{enumerate}
+  \item large-scale joke aggregation is feasible and already completed;
+  \item embedding-based retrieval can be used to build sets of references for weak prompts;
+  \item prompt construction can be approximated through keyword extraction;
+  \item pairwise generation and evaluation infrastructure is available for future model benchmarking;
+  \item the resulting artifacts expose concrete limitations that can guide the next implementation stage.
 \end{enumerate}
 
-\subsection{Evaluation plan}
-Humor evaluation is subjective and noisy. The plan is to evaluate over multiple axes, borrowing from Oogiri multi-dimensional annotation and rubric methods:
-\begin{itemize}[leftmargin=1.5em]
-  \item \textbf{Constraint adherence.} Does this joke satisfy the constraint implied in the prompt?
-  \item \textbf{Novelty.} Is this joke likely memorized?
-  \item \textbf{Human-likeness.} Is this joke human-made or model-generated?
-  \item \textbf{Funniness} Can this joke make people laugh?
+For a preliminary thesis, this is an acceptable and useful stopping point. It provides enough implemented material for a methodology chapter and enough empirical artifacts for a first results chapter, while still leaving room for a final thesis to deliver the actual reinforcement-learning experiments.
+
+\section{Pilot dataset statistics}
+
+Table~\ref{tab:pilotstats} summarizes the key counts extracted from the local repository state. These numbers are especially important because they show the difference between the total available corpus, the current embedded retrieval pool, the seed set used for keyword extraction, and the final deduplicated prompt-reference dataset.
+
+\begin{table}[ht]
+  \centering
+  \caption{Pilot data-construction statistics}
+  \label{tab:pilotstats}
+  \begin{tabular}{p{0.58\textwidth}r}
+    \toprule
+    Artifact                                             & Count     \\
+    \midrule
+    Raw merged joke corpus                               & 664{,}048 \\
+    Embedded jokes in current local pilot                & 10{,}005  \\
+    Keyword-annotated jokes in current pilot             & 1{,}005   \\
+    Generated prompt-reference rows before deduplication & 5{,}958   \\
+    Unique prompt-reference rows after deduplication     & 5{,}058   \\
+    Training prompts                                     & 4{,}046   \\
+    Validation prompts                                   & 506       \\
+    Test prompts                                         & 506       \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Several observations follow directly from these numbers.
+
+First, the pipeline expands a relatively small seed subset into a much larger prompt-level dataset. From 1{,}005 keyword-annotated jokes, it produces 5{,}958 candidate prompt rows. This expansion is expected because each joke contributes multiple one-keyword and two-keyword combinations.
+
+Second, deduplication removes 900 duplicate prompt rows. This is a useful sign rather than a problem. It indicates that different jokes frequently converge to the same weak prompt, which is exactly the condition needed for multi-reference learning.
+
+Third, the size difference between the embedded retrieval pool (10{,}005 jokes) and the keyword seed set (1{,}005 jokes) reveals the current pilot strategy: a smaller set of seed jokes is used to generate prompts, but references are retrieved from a larger pool. This is methodologically sensible because it maximizes reference diversity without requiring the full prompt-construction pipeline to run over the entire corpus.
+
+\section{Reference-set quality}
+
+The most important question for the current thesis is whether the retrieved reference sets are large and coherent enough to justify a multi-reference objective. Table~\ref{tab:refstats} reports descriptive statistics derived from the local prompt-reference artifacts.
+
+\begin{table}[ht]
+  \centering
+  \caption{Descriptive statistics of deduplicated prompt-reference sets}
+  \label{tab:refstats}
+  \begin{tabular}{p{0.58\textwidth}r}
+    \toprule
+    Statistic                              & Value   \\
+    \midrule
+    Average references per prompt          & 4.07    \\
+    Median references per prompt           & 5       \\
+    Maximum references per prompt          & 5       \\
+    Prompts with zero retrieved references & 204     \\
+    Prompts with exactly one reference     & 398     \\
+    Prompts with five references           & 3{,}450 \\
+    Prompts built from one keyword         & 2{,}117 \\
+    Prompts built from two keywords        & 2{,}941 \\
+    Average keyword-group size             & 1.58    \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+These results are encouraging. The median prompt already reaches the configured reference cap of five items, and 3{,}450 out of 5{,}058 prompts are saturated at that limit. This indicates that the retrieval mechanism is not merely finding occasional neighbors; for a large fraction of prompts it constructs a dense local neighborhood of jokes that are semantically related enough to pass the similarity threshold.
+
+At the same time, the long tail is visible. There are 204 prompts with zero retained references and 398 with only one reference. This matters for the later training stage because MRVF becomes weak or unstable when the prompt has no meaningful reference set. The current pilot therefore suggests a natural filtering or curriculum strategy: future training should probably begin with prompts that have at least two or three references and only later decide how to incorporate sparse cases.
+
+The relative abundance of two-keyword prompts is also informative. In the deduplicated dataset, 2{,}941 prompts are built from two keywords and 2{,}117 from one keyword. This suggests that the current parameter choice (\texttt{min\_keywords}=1, \texttt{max\_keywords}=2) yields a balanced mixture of broad and moderately constrained prompts. The one-keyword prompts increase diversity; the two-keyword prompts increase specificity.
+
+\section{Qualitative examples}
+
+Quantitative counts alone do not show whether the constructed prompts are semantically meaningful. For that reason, qualitative inspection of pilot rows is necessary. Table~\ref{tab:examples} provides representative examples drawn from the current training split.
+
+\begin{longtable}{p{0.22\textwidth}p{0.18\textwidth}p{0.48\textwidth}}
+  \caption{Examples of prompt-reference sets from the pilot dataset}
+  \label{tab:examples}                                                                                                                                                                                                                                                       \\
+  \toprule
+  Keyword group               & Number of references & Illustrative reference behavior                                                                                                                                                                                       \\
+  \midrule
+  \endfirsthead
+  \toprule
+  Keyword group               & Number of references & Illustrative reference behavior                                                                                                                                                                                       \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{[alphabet, does]}   & 5                    & References cluster around alphabet-based wordplay, including pirate-letter jokes and orthographic misunderstandings. The prompt is weak, yet the reference set still shares a recognizably playful mechanism.         \\
+  \texttt{[typo, ate]}        & 5                    & The references include jokes about autocorrect, eating, and lexical distortion. This is a good example of a prompt that is broad enough to admit multiple answers but still constrained by a recoverable comic theme. \\
+  \texttt{[ears]}             & 5                    & The retrieved references revolve around hearing or cornfield homophones. This shows that even a one-keyword prompt can generate a coherent neighborhood when the word carries a strong pun affordance.                \\
+  \texttt{[cider, favourite]} & 2                    & The prompt retrieves a much narrower set. This reveals the risk of under-supported prompts: they may be too idiosyncratic for robust training even if they remain semantically meaningful.                            \\
+  \texttt{[girl, lazy]}       & 1                    & The prompt effectively collapses to a near-singleton neighborhood. Such rows are useful for evaluation but weak for multi-reference reinforcement learning.                                                           \\
+\end{longtable}
+
+These examples support three conclusions.
+
+First, the retrieval mechanism often preserves a plausible humor mechanism even though it is not explicitly told to search for mechanisms. This is a positive sign for the embedding-based approach.
+
+Second, one-keyword prompts can still be useful when the keyword is semantically rich or strongly associated with punning. This means that prompt broadness is not automatically a weakness.
+
+Third, sparsity remains a real issue. Some prompts are clearly under-supported, which means that future training cannot simply treat every prompt row as equally informative.
+
+\section{Interpretation of the pilot as a multi-reference dataset}
+
+The pilot results support the central methodological claim of the thesis: a joke corpus can indeed be restructured from isolated samples into weak prompts paired with multiple references. This is not merely a convenience for evaluation. It changes the shape of the learning problem.
+
+In a standard SFT dataset, the model sees \((x,y^{*})\) pairs and is asked to imitate the observed answer. In the pilot dataset produced here, the learning problem begins to look like \((x,Y^{*}(x))\), where the goal is not to reproduce one answer exactly, but to shift probability mass toward a set of acceptable answers. That is precisely the structure required by the MRVF objective.
+
+The descriptive statistics also make the conceptual advantages of multi-reference modeling concrete. If the majority of prompts already have several references in a small pilot, then a larger-scale run over the full corpus has a reasonable chance of yielding a much richer multi-reference dataset. The pilot therefore functions as an existence proof for the data representation.
+
+\section{Limitations revealed by the current implementation}
+
+The pilot also reveals several limitations that must be acknowledged explicitly.
+
+\subsection{Prompt quality is approximate}
+
+The current system does not yet perform full prompt inversion from jokes. It uses keywords as a proxy. This is computationally efficient and easy to audit, but it inevitably loses structure. A keyword prompt such as \prompt{Write a joke using the following keyword(s): ears} can recover the topic of a joke, but not necessarily its framing, rhetorical setup, or intended comedic mechanism.
+
+This limitation does not invalidate the pilot. It means that the current prompt representation should be interpreted as a \emph{weak constraint}, not a rich semantic specification. That interpretation is consistent with the thesis goal: the training task should preserve multiplicity of valid outputs. Weak prompts may even be preferable for that reason, provided they remain coherent enough for retrieval.
+
+\subsection{Coverage is still partial}
+
+Only a subset of the total corpus has been embedded, and an even smaller subset has been used for keyword extraction in the current local run. Therefore, the reported numbers are pilot indicators, not final corpus-scale statistics. A final thesis should rerun the pipeline on a much larger portion of the corpus before drawing strong conclusions about reference coverage.
+
+\subsection{Reference incompleteness remains unresolved}
+
+Even when the system finds five references, that does not mean the true answer set has been observed fully. Five is only the configured retrieval cap. The present pilot therefore confirms the relevance of the incompleteness problem discussed in the methodology chapter. The retrieved set is useful, but it should still be interpreted as a partial observation of a larger latent set of good jokes.
+
+\subsection{No committed benchmark outputs yet}
+
+The repository contains implemented candidate-generation and evaluation modules, but the current committed data artifacts do not yet include candidate generations or pairwise evaluation results. This means the present thesis can defend the benchmark design, but not yet report final model rankings. That limitation is acceptable in a preliminary thesis, provided it is stated clearly.
+
+\subsection{Training remains future work}
+
+The most important limitation is also the most obvious one: the actual reinforcement-learning stage has not yet been implemented. The theoretical objective is specified, and the data pipeline now justifies it, but a final thesis must still test whether MRVF training improves humor generation relative to base, instruct, and reasoning checkpoints.
+
+\section{What the pilot already contributes}
+
+Despite those limitations, the current work already contributes something non-trivial.
+
+First, it replaces a purely conceptual report with a thesis-grade research narrative grounded in actual code and actual data artifacts. The methodology is no longer hypothetical in the abstract; major components are implemented and inspectable.
+
+Second, it demonstrates that the move from single-reference humor supervision to multi-reference supervision is practically achievable. This is arguably the main precondition for the later training study.
+
+Third, it clarifies the software architecture needed for the final stage. The project now has separate modules for corpus ingestion, representation learning, prompt construction, retrieval, generation, and evaluation. This modularity reduces the risk that future negative results will be uninterpretable because all components were entangled.
+
+Fourth, it identifies the exact frontier between what has already been validated and what still requires experimentation. That clarity is itself valuable in a thesis context. It prevents overclaiming and allows the final version of the thesis to focus its experimental effort where uncertainty is highest.
+
+\section{Next stage of the study}
+
+Based on the current pilot, the next stage of the project should proceed in the following order.
+
+First, the prompt-construction pipeline should be rerun at a larger scale so that the distribution of reference counts becomes more stable. A final thesis should not rely on only 1{,}005 keyword-seeded jokes if the full corpus is available.
+
+Second, sparse prompts should be filtered or stratified. Prompts with zero or one retrieved reference are useful diagnostic cases, but they are poor anchors for multi-reference reward estimation.
+
+Third, the \texttt{training.py} module should implement the MRVF update with careful variance control and KL regularization.
+
+Fourth, model comparisons should be run over at least four checkpoint families: base, instruction-tuned, reasoning-tuned, and MRVF-trained variants. This matches the experimental sketch of the original report but relocates it to the correct stage of the project.
+
+Fifth, automatic pairwise evaluation should be complemented with a smaller but carefully designed human annotation study. The literature strongly suggests that humor cannot be left entirely to model judges \citep{Sakabe2025,Zhang2024HumorAI}.
+
+In short, the pilot has done the preparatory work needed to make a final reinforcement-learning experiment worthwhile. It has not yet replaced that experiment.
+
+\chapter*{Conclusion}
+\addcontentsline{toc}{chapter}{Conclusion}
+
+This thesis addressed humor generation as a non-verifiable reasoning problem. The central claim was that training for humor should move away from single-reference imitation and toward multi-reference probability allocation over weak prompts. The literature review showed why this shift is needed: SFT is prone to imitation and memorization, preference-based RL is unstable in humor due to noisy judgments, and current multistep humor systems improve quality at the cost of hard-coded reasoning structures.
+
+The work made two connected contributions. At the methodological level, it formulated a multi-reference extension of verifier-free reinforcement learning in which the reward is the total probability mass assigned to a set of acceptable references rather than to one gold answer. At the implementation level, it built and analyzed a pilot pipeline that turns a large joke corpus into prompt-reference sets through embeddings, keyword extraction, vector retrieval, deduplication, and data splitting.
+
+The empirical analysis of the pilot showed that the idea is viable. In the current local repository state, a corpus of 664{,}048 jokes has already been assembled, a pilot subset has been embedded and processed, and the resulting workflow produces 5{,}058 deduplicated prompt-reference rows with an average of 4.07 references per prompt and a median of five. These statistics indicate that the core structural requirement of MRVF learning, namely the existence of prompts with multiple acceptable references, can be satisfied in practice.
+
+At the same time, the thesis remains preliminary in the correct sense. The prompt-construction procedure is still approximate, the downstream benchmark artifacts are not yet committed, and the MRVF training loop itself has not yet been implemented. Therefore, the present work should be read as a thesis foundation rather than as a final empirical verdict on reinforcement learning for humor.
+
+The main conclusion is that the project has now crossed the boundary from a speculative report to a defensible research program. The data representation, software pipeline, and formal objective are aligned. The next step is to implement the training stage and test whether the constructed multi-reference dataset can indeed elicit better reasoning and stronger humor than standard post-training baselines.
+
+\chapter*{References}
+\addcontentsline{toc}{chapter}{References}
+
+\begin{thebibliography}{99}
+
+  \bibitem[Chu et al.(2025)Chu, Zhang, Chen, Ding, and Yu]{Chu2025}
+  Chu, T., Zhang, S., Chen, Y., Ding, N., \& Yu, T. (2025). \textit{SFT memorizes, RL generalizes: A comparative study of foundation model post-training}. OpenReview / arXiv preprint. \href{https://openreview.net/forum?id=2P4rYTtGok}{https://openreview.net/forum?id=2P4rYTtGok}
+
+  \bibitem[DeepSeek-AI(2025)]{DeepSeek2025}
+  DeepSeek-AI. (2025). \textit{DeepSeek-R1: Incentivizing reasoning capability in LLMs via reinforcement learning}. arXiv. \href{https://doi.org/10.48550/arXiv.2501.12948}{https://doi.org/10.48550/arXiv.2501.12948}
+
+  \bibitem[Gao et al.(2023)Gao, Schulman, Hilton, and others]{Gao2023}
+  Gao, L., Schulman, J., Hilton, J., \& others. (2023). \textit{Scaling laws for reward model overoptimization}. arXiv. \href{https://arxiv.org/abs/2210.10760}{https://arxiv.org/abs/2210.10760}
+
+  \bibitem[Gunjal et al.(2025)Gunjal, Wang, Lau, Nath, He, Liu, and Hendryx]{Gunjal2025}
+  Gunjal, A., Wang, A., Lau, E., Nath, V., He, Y., Liu, B., \& Hendryx, S. (2025). \textit{Rubrics as rewards: Reinforcement learning beyond verifiable domains}. arXiv. \href{https://doi.org/10.48550/arXiv.2507.17746}{https://doi.org/10.48550/arXiv.2507.17746}
+
+  \bibitem[Hashemi et al.(2024)Hashemi, Eisner, Rosset, Van~Durme, and Kedzie]{Hashemi2024}
+  Hashemi, H., Eisner, J., Rosset, C., Van~Durme, B., \& Kedzie, C. (2024). \textit{LLM-Rubric: A multidimensional, calibrated approach to automated evaluation of natural language texts}. \textit{Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics}. \href{https://aclanthology.org/2024.acl-long.745/}{https://aclanthology.org/2024.acl-long.745/}
+
+  \bibitem[Kim and Chilton(2025)]{Kim2025}
+  Kim, S., \& Chilton, L. B. (2025). \textit{AI humor generation: Cognitive, social and creative skills for effective humor}. arXiv. \href{https://arxiv.org/abs/2502.07981}{https://arxiv.org/abs/2502.07981}
+
+  \bibitem[Lightman et al.(2023)Lightman, Kosaraju, Burda, Edwards, Baker, Lee, Leike, Schulman, Sutskever, and Cobbe]{Lightman2023}
+  Lightman, H., Kosaraju, V., Burda, Y., Edwards, H., Baker, B., Lee, T., Leike, J., Schulman, J., Sutskever, I., \& Cobbe, K. (2023). \textit{Let's verify step by step}. OpenAI / arXiv preprint. \href{https://arxiv.org/abs/2305.20050}{https://arxiv.org/abs/2305.20050}
+
+  \bibitem[Loakman et al.(2025)Loakman, Thorne, and Lin]{Loakman2025}
+  Loakman, T., Thorne, W., \& Lin, C. (2025). \textit{Who's laughing now? An overview of computational humour generation and explanation}. arXiv. \href{https://arxiv.org/abs/2509.21175}{https://arxiv.org/abs/2509.21175}
+
+  \bibitem[Sakabe et al.(2025)Sakabe, Kim, Hirasawa, and Komachi]{Sakabe2025}
+  Sakabe, R., Kim, H., Hirasawa, T., \& Komachi, M. (2025). \textit{Assessing the capabilities of LLMs in humor: A multi-dimensional analysis of Oogiri generation and evaluation}. arXiv. \href{https://arxiv.org/abs/2511.09133}{https://arxiv.org/abs/2511.09133}
+
+  \bibitem[Tikhonov and Shtykovskiy(2024)]{Tikhonov2024}
+  Tikhonov, A., \& Shtykovskiy, P. (2024). \textit{Humor mechanics: Advancing humor generation with multistep reasoning}. arXiv. \href{https://arxiv.org/abs/2405.10073}{https://arxiv.org/abs/2405.10073}
+
+  \bibitem[Wei et al.(2022)Wei, Wang, Schuurmans, Bosma, Ichter, Xia, Chi, Le, and Zhou]{Wei2022}
+  Wei, J., Wang, X., Schuurmans, D., Bosma, M., Ichter, B., Xia, F., Chi, E., Le, Q., \& Zhou, D. (2022). \textit{Chain-of-thought prompting elicits reasoning in large language models}. arXiv. \href{https://doi.org/10.48550/arXiv.2201.11903}{https://doi.org/10.48550/arXiv.2201.11903}
+
+  \bibitem[Yu et al.(2025)Yu, Ji, Wang, Yao, Wang, Cui, Yuan, Ding, Yao, Liu, Sun, and Chua]{Yu2025}
+  Yu, T., Ji, B., Wang, S., Yao, S., Wang, Z., Cui, G., Yuan, L., Ding, N., Yao, Y., Liu, Z., Sun, M., \& Chua, T.-S. (2025). \textit{RLPR: Extrapolating RLVR to general domains without verifiers}. arXiv. \href{https://doi.org/10.48550/arXiv.2506.18254}{https://doi.org/10.48550/arXiv.2506.18254}
+
+  \bibitem[Zhang et al.(2024)Zhang, Jain, Guo, Chen, Zhou, Suresh, Wagenmaker, Sievert, Rogers, Jamieson, Mankoff, and Nowak]{Zhang2024HumorAI}
+  Zhang, J., Jain, L., Guo, Y., Chen, J., Zhou, K. L., Suresh, S., Wagenmaker, A., Sievert, S., Rogers, T., Jamieson, K., Mankoff, R., \& Nowak, R. (2024). \textit{Humor in AI: Massive scale crowd-sourced preferences and benchmarks for cartoon captioning}. \textit{Advances in Neural Information Processing Systems, Datasets and Benchmarks Track}. \href{https://arxiv.org/abs/2406.10522}{https://arxiv.org/abs/2406.10522}
+
+  \bibitem[Zhang et al.(2025)Zhang, Luo, Zhang, and Su]{ZhangJ2025}
+  Zhang, J., Luo, S., Zhang, R., \& Su, Q. (2025). \textit{HUMORCHAIN: Theory-guided multi-stage reasoning for interpretable multimodal humor generation}. arXiv. \href{https://doi.org/10.48550/arXiv.2511.21732}{https://doi.org/10.48550/arXiv.2511.21732}
+
+  \bibitem[Zhou et al.(2025)Zhou, Liu, Sims, Wang, Pang, Li, Wang, Lin, and Du]{Zhou2025}
+  Zhou, X., Liu, Z., Sims, A., Wang, H., Pang, T., Li, C., Wang, L., Lin, M., \& Du, C. (2025). \textit{Reinforcing general reasoning without verifiers}. arXiv. \href{https://arxiv.org/abs/2505.21493}{https://arxiv.org/abs/2505.21493}
+
+\end{thebibliography}
+
+\appendix
+
+\chapter{Implemented Prompt Templates}
+
+This appendix records the main templates already implemented in the repository. They are included here because they define the operational form of the prompts used throughout the pilot.
+
+\section{Reference-generation prompt}
+
+The prompt used for reference retrieval and candidate generation is:
+\begin{quote}
+  \ttfamily
+  Write a joke using the following keyword(s): \{keywords\}
+\end{quote}
+
+Its main advantage is consistency. The same textual form is used for retrieval-time prompt embedding and for later candidate generation, which reduces mismatch between dataset construction and evaluation. Its main disadvantage is that it is intentionally generic and therefore does not encode humor theory or audience information.
+
+\section{Embedding query instructions}
+
+Two short instruction templates are used to adapt the embedding model to retrieval subtasks:
+\begin{quote}
+  \ttfamily
+  Instruct: Given a keyword for a joke, retrieve jokes would match the keyword.\\
+  Query: \{keyword\}
+\end{quote}
+
+\begin{quote}
+  \ttfamily
+  Instruct: Given a prompt for a joke, retrieve jokes that would answer the prompt.\\
+  Query: \{prompt\}
+\end{quote}
+
+These templates are important because the pilot does not use raw keyword strings as embeddings directly. It embeds them inside retrieval-oriented instructions, which makes the semantic intent of the vector space more task-specific.
+
+\section{Evaluation prompt}
+
+The pairwise evaluation system prompt asks the judge to compare two jokes written for the same prompt and choose exactly one winner. The instruction explicitly discourages rewarding length or polish when these do not improve humor. This design is intentionally simple and should be viewed as a baseline evaluation protocol rather than a final human-aligned rubric.
+
+\chapter{Supplementary Notes on the Software Architecture}
+
+The repository is organized as a set of asynchronous pipelines:
+\begin{itemize}
+  \item \texttt{JokesPipeline}: downloads and preprocesses raw corpora;
+  \item \texttt{EmbeddingsPipeline}: computes dense joke embeddings;
+  \item \texttt{KeywordsPipeline}: extracts salient keywords by similarity and MMR;
+  \item \texttt{ReferencesPipeline}: builds prompt-reference datasets through vector retrieval;
+  \item \texttt{CandidatesPipeline}: generates jokes from prompts;
+  \item \texttt{EvaluationPipeline}: performs pairwise judging and leaderboard aggregation.
 \end{itemize}
 
-Axes should be calibrated rubric scores from 1 to 5, not scalar ratings, i.e. each level should be verbalized and distinct.
-
-Two complementary evaluation strategies: small-scale human annotation and full-scale LLM-as-a-judge annotation. This is motivated by the evidence that LLMs and humans can critically diverge in humor judgement.
-
-\textbf{References:}
-\begin{itemize}[leftmargin=1.5em]
-  \item Hashemi, Helia et al. (2024). ``LLM-rubric: A multidimensional, calibrated approach to automated evaluation of natural language texts.''
-  \item Gunjal, Anisha et al. (2025). ``Rubrics as rewards: Reinforcement learning beyond verifiable domains.''
-  \item Sakabe, Ritsu et al. (2025). ``Assessing the Capabilities of LLMs in Humor: A Multi-dimensional Analysis of Oogiri Generation and Evaluation.''
-\end{itemize}
-
-\subsection{Ablations}
-\begin{itemize}[leftmargin=1.5em]
-  \item \textbf{Reference subset size \(|Y^*|\).} How sensitive is training to incomplete reference observation? Is the scale-invariance and  rationale valid?
-  \item \textbf{KL hyperparameter \(\beta\).} Are catastrophic forgetting or mode seeking detectable?
-  \item  \textbf{...}
-\end{itemize}
+This architecture matters for the final thesis because it separates data construction from model comparison. As a result, the later MRVF training stage can be added without rewriting the rest of the infrastructure. The missing component is precisely the one that now becomes the main target of future work: a training pipeline that consumes the constructed prompt-reference dataset and optimizes the formal objective introduced in Chapter 2.
 
 \end{document}
