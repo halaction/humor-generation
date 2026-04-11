@@ -1,14 +1,14 @@
 # Fdb version 4
-["bibtex main"] 1775864953.31531 "main.aux" "main.bbl" "main" 1775865438.14785 0
+["bibtex main"] 1775901572.61669 "main.aux" "main.bbl" "main" 1775902527.2047 0
   "./references.bib" 1775864601.35297 9370 056b20fdf43cb22a0ff8be6525d9cce2 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/bibtex/bst/natbib/plainnat.bst" 1741388039 26816 ffe5423d2019860bad9f54bc402fac15 ""
-  "main.aux" 1775865438.00341 12241 ab6258c16f555a325898465efd7558b8 "pdflatex"
+  "main.aux" 1775902527.07199 11810 d4085a3e71094a9d29c098d9e15590f1 "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1775865437.57408 "/Users/halaction/Workspace/humor-generation/docs/draft/main.tex" "main.pdf" "main" 1775865438.14797 0
-  "/Users/halaction/Workspace/humor-generation/docs/draft/main.tex" 1775865437.43385 50625 ab4dc44f2a89bf1b88aac0f5c8332ee1 ""
+["pdflatex"] 1775902526.67113 "/Users/halaction/Workspace/humor-generation/docs/draft/main.tex" "main.pdf" "main" 1775902527.2048 0
+  "/Users/halaction/Workspace/humor-generation/docs/draft/main.tex" 1775865825.29589 4362 493b4586e375d0cf3cdab32919d4f1a1 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc" 1741388039 2971 def0b6c1f0b107b3b936def894055589 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc" 1741388039 2900 1537cc8184ad1792082cd229ecc269f4 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/map/fontname/texfonts.map" 1741388039 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -16,8 +16,6 @@
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecbx1440.tfm" 1741388039 3584 13049b61b922a28b158a38aeff75ee9b ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecbx1728.tfm" 1741388039 3584 ad49a18d8515beef6d92d4d3f197d0fd ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecbx2074.tfm" 1741388039 3584 7666d038713b9e38abb5c2e0f6972188 ""
-  "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm0700.tfm" 1741388039 3584 cf973739aac7ab6247f9150296af7954 ""
-  "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm1000.tfm" 1741388039 3584 adb004a0c8e7c46ee66cad73671f37b4 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm1440.tfm" 1741388039 3584 3169d30142b88a27d4ab0e3468e963a2 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm1728.tfm" 1741388039 3584 3c76ccb63eda935a68ba65ba9da29f1a ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm2074.tfm" 1741388039 3584 8e2870ec7aa9776f59654942b0923f51 ""
@@ -45,7 +43,6 @@
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/type1/public/cm-super/sfbx1440.pfb" 1741388039 135942 859a90cad7494a1e79c94baf546d7de5 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/type1/public/cm-super/sfbx1728.pfb" 1741388039 139826 9213617a7cb78635fc326b859c0b2273 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/type1/public/cm-super/sfbx2074.pfb" 1741388039 140194 627cc7f36c05b80e25d178974ccb3442 ""
-  "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/type1/public/cm-super/sfrm1000.pfb" 1741388039 138258 6525c253f16cededa14c7fd0da7f67b2 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/type1/public/cm-super/sfrm1440.pfb" 1741388039 131078 d96015a2fa5c350129e933ca070b2484 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/type1/public/cm-super/sfti1440.pfb" 1741388039 187615 3df8b496c716586eebd1546cd4031312 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/type1/public/cm-super/sftt1440.pfb" 1741388039 166192 d74933432e33dffe92198fe51b7b0dcb ""
@@ -115,12 +112,16 @@
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/tex/latex/url/url.sty" 1741388039 12796 8edb7d69a20b857904dd0ea757c14ec9 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/web2c/texmf.cnf" 1741388039 42151 79f67285bdd95beca4d137b380b4b9e5 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-var/web2c/pdftex/pdflatex.fmt" 1741388039 3346139 1cc6d170340807f4737e090b298f03d2 ""
-  "chapters/literature-review.tex" 1775865433.90453 15098 2fb5745a6180fbe1d47ab445bacf23c7 ""
-  "main.aux" 1775865438.00341 12241 ab6258c16f555a325898465efd7558b8 "pdflatex"
-  "main.bbl" 1775864953.37538 10334 f5fd00cdbfbe041530ddb3a1e7b90e32 "bibtex main"
-  "main.out" 1775865438.00452 11184 8c92ae70351b900e69d58946f2ea60c8 "pdflatex"
-  "main.tex" 1775865437.43385 50625 ab4dc44f2a89bf1b88aac0f5c8332ee1 ""
-  "main.toc" 1775865438.00471 4757 6b0d76edc1a35e7d36fedf08f3f93177 "pdflatex"
+  "chapters/conclusion.tex" 1775865823.49484 2345 dc357ca6841c3163f144a879fb04cb3e ""
+  "chapters/introduction.tex" 1775865566.08869 7491 81889af05bb1e42cd5b32bd380dd9359 ""
+  "chapters/literature-review.tex" 1775902527.08657 15422 2181b18ac9c46b5442305f82fb594145 ""
+  "chapters/methodology.tex" 1775899082.25834 21813 87dd5e934502980588440e51ddd4f494 ""
+  "chapters/results.tex" 1775865720.51515 15956 996de41702261e0cf3f5486426026321 ""
+  "main.aux" 1775902527.07199 11810 d4085a3e71094a9d29c098d9e15590f1 "pdflatex"
+  "main.bbl" 1775901572.6661 9872 268b117ced353d119d548d947aff7450 "bibtex main"
+  "main.out" 1775902527.07299 10719 8f954afa4e01a8c21d520390e9c52c8e "pdflatex"
+  "main.tex" 1775865825.29589 4362 493b4586e375d0cf3cdab32919d4f1a1 ""
+  "main.toc" 1775902527.07319 4720 cdcf821ce891b06345c015946c76cc63 "pdflatex"
   (generated)
   "main.aux"
   "main.log"
