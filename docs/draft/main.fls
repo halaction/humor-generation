@@ -188,7 +188,6 @@ INPUT ./chapters/methodology.tex
 INPUT ./chapters/methodology.tex
 INPUT ./chapters/methodology.tex
 INPUT chapters/methodology.tex
-INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecti1440.tfm
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ectt1440.tfm
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm1728.tfm
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecbx1728.tfm
@@ -199,6 +198,7 @@ INPUT ./chapters/results.tex
 INPUT ./chapters/results.tex
 INPUT ./chapters/results.tex
 INPUT chapters/results.tex
+INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecti1440.tfm
 INPUT ./chapters/conclusion.tex
 INPUT ./chapters/conclusion.tex
 INPUT ./chapters/conclusion.tex

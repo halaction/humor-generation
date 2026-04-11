@@ -1,12 +1,12 @@
 \section{Research scope and implementation status}
 
-The methodology of this preliminary thesis has two layers. The first layer is an \emph{implemented data and evaluation pipeline}, already present in the repository. The second layer is a \emph{proposed training objective}, namely multi-reference verifier-free reinforcement learning (MRVF), which is formulated mathematically but not yet implemented in code. This distinction is important for the scope of the present work. The repository already contains pipelines for corpus construction, embedding generation, keyword extraction, reference retrieval, candidate generation, and automatic pairwise evaluation. However, the training stage itself remains future work. Consequently, this chapter distinguishes between what is currently operational in the codebase and what is proposed as the next stage of the project.
+The methodology of this preliminary thesis has two layers. The first layer is an implemented data and evaluation pipeline, already present in the repository. The second layer is a proposed training objective, namely multi-reference verifier-free reinforcement learning (MRVF), which is formulated mathematically but not yet implemented in code. This distinction is important for the scope of the present work. The repository already contains pipelines for corpus construction, embedding generation, keyword extraction, reference retrieval, candidate generation, and automatic pairwise evaluation. However, the training stage itself remains future work. Consequently, this chapter distinguishes between what is currently operational in the codebase and what is proposed as the next stage of the project.
 
 At a high level, the implemented system constructs a weakly supervised multi-reference dataset from raw joke corpora. Jokes are first merged into a unified corpus, embedded with a dense retrieval model, and reduced to a small set of salient keywords. These keywords are then expanded into one-keyword and two-keyword prompt groups, which are used to retrieve semantically related joke references from the embedding index. The resulting prompt--reference structure supports two immediate uses. First, it provides a pilot substrate for baseline generation and automatic evaluation. Second, it defines the reference sets required by the proposed MRVF training objective.
 
 \section{Corpus construction}
 
-The empirical basis of the project is a merged corpus built from two public joke collections: the \emph{Short Jokes} dataset and the \emph{rJokes} dataset. In the repository, this stage is implemented in \texttt{src/pipelines/jokes.py}. The pipeline downloads the raw files from pinned source revisions, converts them into parquet format, and preserves source metadata for each joke. For every row, the stored fields are \texttt{id}, \texttt{text}, \texttt{source\_name}, \texttt{source\_filename}, and \texttt{source\_id}. After preprocessing the two corpora separately, they are concatenated and assigned a new global integer identifier.
+The empirical basis of the project is a merged corpus built from two public joke collections: the Short Jokes dataset and the rJokes dataset. In the repository, this stage is implemented in \texttt{src/pipelines/jokes.py}. The pipeline downloads the raw files from pinned source revisions, converts them into parquet format, and preserves source metadata for each joke. For every row, the stored fields are \texttt{id}, \texttt{text}, \texttt{source\_name}, \texttt{source\_filename}, and \texttt{source\_id}. After preprocessing the two corpora separately, they are concatenated and assigned a new global integer identifier.
 
 This design is intentionally conservative. The pipeline does not perform aggressive text normalization beyond removing empty entries and standardizing storage format. For humor, such caution is desirable, because seemingly minor textual details---punctuation, wording, or line breaks---may contribute to comedic effect. Retaining source metadata is also useful for later analysis of domain differences, duplicate detection, and possible source-specific biases.
 
@@ -26,7 +26,7 @@ The checked-in entrypoints currently run this stage on a pilot subset rather tha
 
 \section{Keyword extraction as weak prompt approximation}
 
-A major correction to the earlier research plan is that the current repository does \emph{not} yet implement generative prompt inversion from jokes to free-form prompts. Instead, it approximates weak prompts through salient keyword extraction. This stage is implemented in \texttt{src/pipelines/keywords.py}.
+A major correction to the earlier research plan is that the current repository does not yet implement generative prompt inversion from jokes to free-form prompts. Instead, it approximates weak prompts through salient keyword extraction. This stage is implemented in \texttt{src/pipelines/keywords.py}.
 
 For each joke \(y_i\), the pipeline first generates a candidate pool of surface n-grams with a \texttt{CountVectorizer}-based analyzer. Under the default configuration, this analyzer uses unigrams only, removes English stopwords, and keeps at most 64 candidate terms per joke. Let the resulting candidate set be
 \[
@@ -88,7 +88,7 @@ The search procedure retrieves more than \(k\) candidates, filters out those who
     Y^{*}(x)=\{y_1,\dots,y_n\}, \qquad n \le 5.
 \]
 
-This stage operationalizes the central object of the thesis: a prompt associated with multiple candidate joke references rather than with a single gold target. Importantly, the retrieved set is not an exhaustively annotated set of all good jokes for \(x\). It is a \emph{retrieved approximation} of that set. This matters both empirically and theoretically. Empirically, retrieved references may contain noise or omit valid alternatives. Theoretically, the incompleteness of \(Y^{*}(x)\) becomes a core part of the later MRVF analysis rather than a secondary inconvenience.
+This stage operationalizes the central object of the thesis: a prompt associated with multiple candidate joke references rather than with a single gold target. Importantly, the retrieved set is not an exhaustively annotated set of all good jokes for \(x\). It is a retrieved approximation of that set. This matters both empirically and theoretically. Empirically, retrieved references may contain noise or omit valid alternatives. Theoretically, the incompleteness of \(Y^{*}(x)\) becomes a core part of the later MRVF analysis rather than a secondary inconvenience.
 
 A practical consequence of the current implementation is that some keyword groups may retrieve no reference passing the similarity threshold. Such rows are still representable in the dataset because candidate generation uses the prompt itself, not the reference texts. However, rows with empty reference sets would need to be filtered or specially handled before actual MRVF training.
 
@@ -123,7 +123,7 @@ Automatic evaluation is implemented in \texttt{src/pipelines/evaluation.py}. The
 
 The evaluation prompt is deliberately simple. The user-facing prompt contains the shared joke prompt together with a left and a right candidate. The system instruction tells the evaluator to act as an expert judge of humor quality, choose which joke is funnier for a general audience, avoid ties, and return strict JSON. Under the default configuration, the judge model runs at temperature \(0\).
 
-This evaluation layer captures only one dimension of quality: comparative funniness under a shared prompt. It does \emph{not} yet implement the fuller multidimensional evaluation proposed elsewhere in the thesis, such as separate rubric-based judgments for prompt adherence, novelty, human-likeness, and funniness. Nor does it yet include human annotation. Accordingly, the current automatic evaluator should be described as the implemented pilot benchmark, not as the final evaluation framework.
+This evaluation layer captures only one dimension of quality: comparative funniness under a shared prompt. It does not yet implement the fuller multidimensional evaluation proposed elsewhere in the thesis, such as separate rubric-based judgments for prompt adherence, novelty, human-likeness, and funniness. Nor does it yet include human annotation. Accordingly, the current automatic evaluator should be described as the implemented pilot benchmark, not as the final evaluation framework.
 
 \subsection{Leaderboard aggregation}
 
@@ -300,8 +300,8 @@ The practical importance of the implemented data pipeline is now clear. Without 
 
 The present repository supports one implemented benchmark and one broader planned benchmark.
 
-The \emph{implemented benchmark} is automatic pairwise comparison of generated jokes across models, followed by Bradley--Terry aggregation. This is the method that can be honestly reported as operational at the current stage.
+The implemented benchmark is automatic pairwise comparison of generated jokes across models, followed by Bradley--Terry aggregation. This is the method that can be honestly reported as operational at the current stage.
 
-The \emph{planned benchmark} extends evaluation along multiple axes motivated by recent humor-evaluation work: prompt adherence, novelty, human-likeness, and funniness. These dimensions should ideally be assessed with calibrated rubrics and with a combination of human annotation and LLM-based evaluation. That extension is consistent with the literature review and with the theoretical goals of the project, but it is not yet implemented in the checked-in code.
+The planned benchmark extends evaluation along multiple axes motivated by recent humor-evaluation work: prompt adherence, novelty, human-likeness, and funniness. These dimensions should ideally be assessed with calibrated rubrics and with a combination of human annotation and LLM-based evaluation. That extension is consistent with the literature review and with the theoretical goals of the project, but it is not yet implemented in the checked-in code.
 
 Accordingly, the methodological contribution of this preliminary thesis is twofold. On the engineering side, it demonstrates a working pipeline that converts raw joke corpora into weak prompts with retrieved multi-reference sets and supports baseline generation plus automatic comparison. On the theoretical side, it formalizes how these constructed reference sets can be used in a verifier-free reinforcement-learning objective tailored to creative generation.
