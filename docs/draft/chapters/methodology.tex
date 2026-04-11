@@ -1,6 +1,6 @@
 \section{Research scope and implementation status}
 
-The methodology of this preliminary thesis has two layers. The first layer is an implemented data and evaluation pipeline, already present in the repository. The second layer is a proposed training objective, namely multi-reference verifier-free reinforcement learning (MRVF), which is formulated mathematically but not yet fully implemented in code. This distinction is important for the scope of the present work. The repository already contains pipelines for corpus construction, embedding generation, keyword extraction, reference retrieval, candidate generation, and automatic pairwise evaluation. However, the training stage itself remains future work. Consequently, this chapter distinguishes between what is currently operational in the codebase and what is proposed as the next stage of the project.
+The methodology of this preliminary thesis has two layers. The first layer is an implemented data and evaluation pipeline, already present in the repository. The second layer is a proposed training objective, namely multi-reference verifier-free (MRVF) reinforcement learning, which is formulated mathematically but not yet fully implemented in code. This distinction is important for the scope of the present work. The repository already contains pipelines for corpus construction, embedding generation, keyword extraction, reference retrieval, candidate generation, and automatic pairwise evaluation. However, the training stage itself remains future work. Consequently, this chapter distinguishes between what is currently operational in the codebase and what is proposed as the next stage of the project.
 
 At a high level, the implemented system constructs a weakly supervised multi-reference dataset from raw joke datasets. Jokes are first merged into a unified corpus, embedded with a dense retrieval model, and reduced to a small set of keywords with an emb. These keywords are then expanded into n-gram prompt groups, which are then used to retrieve semantically related jokes from the embedding index. The resulting references supports two immediate uses. First, it provides data for baseline generation and automatic evaluation. Second, it defines training and validation sets required by the proposed MRVF training objective.
 
@@ -120,7 +120,7 @@ Automatic evaluation is implemented in \texttt{src/pipelines/evaluation.py}. The
 
 The evaluation prompt is deliberately simple, it contains the shared joke prompt together with a left and a right candidate. The system instruction tells the annotator to act as an judge of humor quality, choose which joke is funnier for a general audience, avoid ties, and return strict JSON. Under the default configuration, the judge model runs at temperature \(0\).
 
-This evaluation layer captures only comparative funniness under a shared prompt. It does not yet implement the multidimensional evaluation discussed in the literature review, such as separate rubric-based judgments for prompt adherence, novelty, human-likeness, and funniness. Nor does it yet include human annotation. These stages are future work as they depend on the complete training procedure.
+This evaluation layer captures only comparative funniness under a shared prompt. It does not yet implement the multidimensional evaluation discussed in the literature review, such as separate rubric-based judgments for prompt adherence, novelty, human-likeness, and funniness, nor does it yet include human annotation. These stages are future work as they depend on the complete training procedure.
 
 \subsection{Leaderboard aggregation}
 
@@ -130,52 +130,94 @@ This aggregation is a sensible choice for humor because relative judgments are o
 
 \section{Theoretical framework for MRVF training}
 
-The implemented pipeline above motivates the theoretical part of the methodology. It constructs the observed multi-reference sets required by verifier-free reinforcement learning, while the sections below expand on the theory behind the proposed training procedure.
+The implemented pipeline above constructs prompt-conditioned reference sets, the present section specifies how such sets would enter a reasoning-oriented reinforcement-learning objective. The central claim is that humor generation is not well matched to the single-reference assumptions used in standard verifier-based or verifier-free reasoning RL. A weak prompt may admit many acceptable jokes, and the repository already makes this concrete by retrieving several references for the same keyword-based prompt. The theory below formalizes how to optimize against such set-valued supervision.
 
 \subsection{Notation}
 
-Let
+Let \(\mathcal{X}\), \(\mathcal{Z}\), and \(\mathcal{Y}\) denote the spaces of prompts, reasoning traces, and final answers, respectively. For a prompt \(x\in\mathcal{X}\),
 \begin{itemize}
-    \item \(x\) denote a prompt,
-    \item \(z\) denote a reasoning trace,
-    \item \(y\) denote the final generated joke,
-    \item \(y^{*}\) denote a single reference answer,
-    \item \(Y^{*}(x)\subset\mathcal{Y}\) denote the observed set of acceptable references for prompt \(x\).
+    \item \(z\in\mathcal{Z}\) denotes a reasoning trace,
+    \item \(y\in\mathcal{Y}\) denotes the final generated joke,
+    \item \(y^{*}\in\mathcal{Y}\) denotes a single reference answer,
+    \item \(Y^{*}(x)\subset\mathcal{Y}\) denotes the \emph{observed} set of acceptable references associated with prompt \(x\),
+    \item \(\pi_{\theta}\) denotes the policy, that is, the conditional probability model over text parameterized by \(\theta\).
 \end{itemize}
 
-% TODO: Add policy to the notation, it may be not clear it is the probability model
-
+More explicitly,
+\[
+    \pi_{\theta}(z,y\mid x)=P_{\theta}(Z=z,Y=y\mid X=x).
+\]
 The policy is factorized as
 \[
     \pi_{\theta}(z,y\mid x)=\pi_{\theta}(z\mid x)\,\pi_{\theta}(y\mid x,z).
 \]
-This factorization is conceptually useful because it separates the reasoning process from the final answer event that receives reward.
+When the model emits explicit reasoning tokens, \(z\) can be identified with the text inside a designated \texttt{<think>} segment and \(y\) with the final answer that follows it. When reasoning is not explicitly exposed in the output stream, the same factorization can still be read as a conceptual decomposition into a sampled intermediate trajectory \(z\) and a final answer conditioned on that trajectory. The advantage of this notation is that it separates two roles of the model: selecting a reasoning path and assigning probability mass to answers given that path.
+
+For notational economy, the optimization objective below is written in terms of the observed set \(Y^{*}(x)\). When discussing incompleteness, it will be useful to imagine a larger latent set \(Y_{\mathrm{true}}(x)\supseteq Y^{*}(x)\) containing all genuinely acceptable jokes for prompt \(x\), even though that full set is never observed in practice.
 
 \subsection{RL with verifiable rewards}
 
-% TODO: This section is good at math, but for an outside reader there is too little text and explanations, add them. And i think a little section on rl basic - what is reward, objective and how gradient is used for updates may be beneficial
+Reinforcement learning optimizes a policy by maximizing expected reward. Given an objective \(J(\theta)\), training proceeds by stochastic gradient ascent or, equivalently, by gradient descent on the negative objective. The critical design choice is therefore the reward function: it specifies which generations should receive positive signals.
 
-% TODO: Give an example of a verifier - for code it is tests, for math it is a definitive answer, which are deterministically matched with the generation, this is what = signifies here really
-In the standard single-reference, verifiable setting, reward is given by
+In verifiable domains, reward can be assigned by an external procedure that does not depend on subjective human judgment. For code, a generated program can be executed against a test suite, for mathematics, a final answer can be parsed and compared against a canonical solution. In such cases the event ``the answer is correct'' has an meaning external to the language model itself. Recent reasoning models rely heavily on this structure for training \citep{DeepSeek2025,Lightman2023}.
+
+Assume first the standard single-reference setting: for each prompt \(x\), there is exactly one verifiable target \(y^{*}\). Define the reward
 \[
-    R(y,y^{*})=\mathbb{I}\{y=y^{*}\}.
+    R(y,y^{*})=\mathbb{I}\{y=y^{*}\},
 \]
-The objective is
+where \(\mathbb{I}\{\cdot\}\) is the indicator function. The objective is then
 \[
     J_{\mathrm{RLVR}}(\theta\mid x,y^{*})
     =
     \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
-    \mathbb{E}_{y\sim\pi_{\theta}(y\mid x,z)}[R(y,y^{*})].
+    \mathbb{E}_{y\sim\pi_{\theta}(y\mid x,z)}
+    \big[R(y,y^{*})\big].
+\]
+Equivalently, in expanded summation form,
+\[
+    J_{\mathrm{RLVR}}(\theta\mid x,y^{*})
+    =
+    \sum_{z\in\mathcal{Z}}\sum_{y\in\mathcal{Y}}
+    \pi_{\theta}(z\mid x)\pi_{\theta}(y\mid x,z)\,R(y,y^{*}).
 \]
 
-% TODO: This step may not be clear, what is this identity? this inference should be explanatory
-Using the score-function identity,
+To optimize this expectation one uses the score-function identity, also known as the REINFORCE identity:
 \[
     \nabla_{\theta}\,\mathbb{E}_{u\sim p_{\theta}(u)}[f(u)]
     =
-    \mathbb{E}_{u\sim p_{\theta}(u)}\big[f(u)\nabla_{\theta}\log p_{\theta}(u)\big],
+    \mathbb{E}_{u\sim p_{\theta}(u)}
+    \big[f(u)\nabla_{\theta}\log p_{\theta}(u)\big].
 \]
-we obtain
+This identity follows directly from the relation \(\nabla_{\theta}p_{\theta}(u)=p_{\theta}(u)\nabla_{\theta}\log p_{\theta}(u)\). Applying it to the joint distribution of \((z,y)\) yields
+\begin{align*}
+    \nabla_{\theta}J_{\mathrm{RLVR}}
+     & =
+    \nabla_{\theta}
+    \sum_{z,y}\pi_{\theta}(z,y\mid x)\,R(y,y^{*})                                             \\
+     & =
+    \sum_{z,y}R(y,y^{*})\,\nabla_{\theta}\pi_{\theta}(z,y\mid x)                              \\
+     & =
+    \sum_{z,y}\pi_{\theta}(z,y\mid x)\,R(y,y^{*})\,\nabla_{\theta}\log\pi_{\theta}(z,y\mid x) \\
+     & =
+    \mathbb{E}_{z,y}\Big[
+        R(y,y^{*})\,\nabla_{\theta}\log\pi_{\theta}(z,y\mid x)
+        \Big].
+\end{align*}
+Using the factorization of the joint policy,
+\[
+    \log\pi_{\theta}(z,y\mid x)
+    =
+    \log\pi_{\theta}(z\mid x)+\log\pi_{\theta}(y\mid x,z),
+\]
+hence
+\[
+    \nabla_{\theta}\log\pi_{\theta}(z,y\mid x)
+    =
+    \nabla_{\theta}\log\pi_{\theta}(z\mid x)
+    +
+    \nabla_{\theta}\log\pi_{\theta}(y\mid x,z).
+\]
+Therefore
 \[
     \nabla_{\theta}J_{\mathrm{RLVR}}
     =
@@ -189,31 +231,79 @@ we obtain
         \Big].
 \]
 
-% TODO: Expand on its interpretation, what are the terms, how they work
+This expression has a simple interpretation. A sampled pair \((z,y)\) receives reward only when the verifier declares \(y\) correct. When that occurs, the update increases both the probability of the reasoning trace that led to the answer and the probability of the answer itself under that trace
 
 \subsection{VeriFree}
 
-% TODO: Add a refresher on the research context, how this is an aid for non-verifiable domains, why external verifier may not exist
-When an external verifier is unavailable but a single reference answer \(y^{*}\) exists, the expectation over the indicator can be rewritten as
-\[
-    \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}[\mathbb{I}\{y=y^{*}\}]
-    =
+Humor does not provide such an external verifier, and more generally many open-ended generation tasks do not admit a deterministic correctness test. VeriFree addresses this gap by observing that in the single-reference case the expected exact-match reward can be rewritten as a conditional probability \citep{Zhou2025}.
+
+Fix \(x\) and \(z\). Then
+\begin{align*}
+    \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}
+    \big[\mathbb{I}\{y=y^{*}\}\big]
+     & =
+    \sum_{y\in\mathcal{Y}}
+    \pi_{\theta}(y\mid x,z)\,\mathbb{I}\{y=y^{*}\} \\
+     & =
     \pi_{\theta}(y^{*}\mid x,z).
+\end{align*}
+Substituting this identity back into the RLVR objective gives
+\[
+    J_{\mathrm{RLVR}}(\theta\mid x,y^{*})
+    =
+    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
+    \big[\pi_{\theta}(y^{*}\mid x,z)\big].
 \]
+This suggests defining the verifier-free reward
+\[
+    r_{\theta}(x,z,y^{*}) := \pi_{\theta}(y^{*}\mid x,z),
+\]
+and the corresponding objective
+\[
+    J_{\mathrm{VF}}(\theta\mid x,y^{*})
+    :=
+    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
+    \big[r_{\theta}(x,z,y^{*})\big].
+\]
+Under the single-reference assumption,
+\[
+    J_{\mathrm{VF}}(\theta\mid x,y^{*}) \equiv J_{\mathrm{RLVR}}(\theta\mid x,y^{*})
+\]
+as scalar objectives. The importance of this reformulation is practical as well as conceptual: no explicit decoding of \(y\) is required for reward computation, and \(\pi_{\theta}(y^{*}\mid x,z)\) can be computed by teacher forcing on the reference sequence, which is conveniently parallelizable.
 
-% TODO: Here are some expectation inference step omitted, add them back to make it clear how the expectation makes identity a probability. Overall, try to be a little more literal, do not omit important steps for too much brevity
-
-This yields the verifier-free objective
+To obtain the policy gradient, write
 \[
     J_{\mathrm{VF}}(\theta\mid x,y^{*})
     =
-    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}\big[r_{\theta}(x,z,y^{*})\big],
+    \sum_{z\in\mathcal{Z}} \pi_{\theta}(z\mid x)\,r_{\theta}(x,z,y^{*}).
 \]
-where
+Differentiating by the product rule,
+\begin{align*}
+    \nabla_{\theta}J_{\mathrm{VF}}
+     & =
+    \sum_{z}
+    \Big[
+        \nabla_{\theta}\pi_{\theta}(z\mid x)\,r_{\theta}(x,z,y^{*})
+        +
+        \pi_{\theta}(z\mid x)\,\nabla_{\theta}r_{\theta}(x,z,y^{*})
+    \Big] \\
+     & =
+    \sum_{z}\pi_{\theta}(z\mid x)
+    \Big[
+        r_{\theta}(x,z,y^{*})\,\nabla_{\theta}\log\pi_{\theta}(z\mid x)
+        +
+        \nabla_{\theta}r_{\theta}(x,z,y^{*})
+        \Big].
+\end{align*}
+Since \(r_{\theta}(x,z,y^{*})=\pi_{\theta}(y^{*}\mid x,z)\),
 \[
-    r_{\theta}(x,z,y^{*}) := \pi_{\theta}(y^{*}\mid x,z).
+    \nabla_{\theta}r_{\theta}(x,z,y^{*})
+    =
+    \pi_{\theta}(y^{*}\mid x,z)\,\nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z)
+    =
+    r_{\theta}(x,z,y^{*})\,\nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z).
 \]
-Differentiating gives
+Hence
 \[
     \nabla_{\theta}J_{\mathrm{VF}}
     =
@@ -227,102 +317,385 @@ Differentiating gives
         \Big].
 \]
 
-% TODO: Again, expand on its interpretation, what are the terms, how they work. Add the info from the paper, talk a bit about estimator qualitites, gradients.
+This decomposition is informative. The first term,
+\[
+    \mathbb{E}_{z}\big[r_{\theta}(x,z,y^{*})\,\nabla_{\theta}\log\pi_{\theta}(z\mid x)\big],
+\]
+is a score-function term over sampled reasoning traces. It assigns higher probability to traces under which the model itself places higher conditional mass on the reference answer. The second term,
+\[
+    \mathbb{E}_{z}\big[\nabla_{\theta}r_{\theta}(x,z,y^{*})\big],
+\]
+is a direct teacher-forced gradient on the reference sequence. Relative to RLVR, VeriFree removes noise from sampling the final answer \(y\): the estimator still samples \(z\), but not the answer used for reward evaluation. This is precisely why VeriFree is attractive in domains where a verifier is unavailable but a single reference answer exists.
 
 \subsection{Multi-reference VeriFree}
 
-% TODO: This section is too short, you have significantly cut the original mathematical inference and explanations, please return them and enhance explanations, do not make it too simplistic. 
+The single-reference assumption is inappropriate for humor. A prompt such as ``write a joke using the keywords cat, dog'' does not have one correct completion, it has many plausible completions differing in setup, punchline mechanism, tone, and level of absurdity. In fact, the implemented repository is explicitly designed to construct several references for the same weak prompt. The reward must therefore be defined on a set of acceptable answers rather than on one.
 
-Humor violates the single-reference assumption. A weak prompt such as ``write a joke using the keywords cat, dog'' admits many plausible completions. The implemented repository makes this explicit by constructing multiple retrieved references for the same prompt. Accordingly, reward should be defined at the level of a reference set:
+Let \(Y^{*}(x)\subset\mathcal{Y}\) denote the observed set of acceptable references for prompt \(x\). Define the multi-reference verified reward
 \[
     R(y,Y^{*})=\mathbb{I}\{y\in Y^{*}\}.
 \]
-The corresponding objective is
+The corresponding set-valued exact-match objective is
 \[
     J_{\mathrm{MR}}(\theta\mid x,Y^{*})
     =
-    \mathbb{E}_{z}
+    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
     \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}
-        [\mathbb{I}\{y\in Y^{*}\}].
+    \big[\mathbb{I}\{y\in Y^{*}\}\big].
 \]
-Since
+For fixed \(x\) and \(z\),
+\begin{align*}
+    \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}
+    \big[\mathbb{I}\{y\in Y^{*}\}\big]
+     & =
+    \sum_{y\in\mathcal{Y}}
+    \pi_{\theta}(y\mid x,z)\,\mathbb{I}\{y\in Y^{*}\} \\
+     & =
+    \sum_{y\in Y^{*}}
+    \pi_{\theta}(y\mid x,z).
+\end{align*}
+This motivates the multi-reference verifier-free reward
 \[
-    \mathbb{E}_{y}[\mathbb{I}\{y\in Y^{*}\}] = \sum_{y\in Y^{*}} \pi_{\theta}(y\mid x,z),
+    r_{\theta}(x,z,Y^{*})
+    :=
+    \sum_{y\in Y^{*}}
+    \pi_{\theta}(y\mid x,z).
 \]
-we define the multi-reference verifier-free reward
-\[
-    r_{\theta}(x,z,Y^{*}) := \sum_{y\in Y^{*}} \pi_{\theta}(y\mid x,z),
-\]
-and obtain
+The quantity \(r_{\theta}(x,z,Y^{*})\) lies in \([0,1]\): it is the total probability mass that the policy assigns, under reasoning trace \(z\), to the observed reference set. Equivalently, it is the probability of the event that the generated answer falls inside that set. The resulting objective is
 \[
     J_{\mathrm{MRVF}}(\theta\mid x,Y^{*})
     =
-    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}\big[r_{\theta}(x,z,Y^{*})\big].
+    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
+    \big[r_{\theta}(x,z,Y^{*})\big].
 \]
-This objective is the theoretical counterpart of the implemented reference-retrieval pipeline: the code constructs observed multi-reference sets, and MRVF defines how those sets would be used for optimization.
 
-% TODO: Gradient derivation and interpretation is missing here, it is not equivalent to verifree, so it needs to be addressed.
+At the scalar level, MRVF plays the same role for a set-valued reward that VeriFree plays for a single exact-match reward. However, the gradient structure is not merely the single-reference formula with \(y^{*}\) replaced by a set symbol. The answer-side derivative changes in an essential way.
+
+Indeed,
+\[
+    J_{\mathrm{MRVF}}(\theta\mid x,Y^{*})
+    =
+    \sum_{z}\pi_{\theta}(z\mid x)\,r_{\theta}(x,z,Y^{*}),
+\]
+so
+\begin{align*}
+    \nabla_{\theta}J_{\mathrm{MRVF}}
+     & =
+    \sum_{z}
+    \Big[
+        \nabla_{\theta}\pi_{\theta}(z\mid x)\,r_{\theta}(x,z,Y^{*})
+        +
+        \pi_{\theta}(z\mid x)\,\nabla_{\theta}r_{\theta}(x,z,Y^{*})
+    \Big] \\
+     & =
+    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
+    \Big[
+        r_{\theta}(x,z,Y^{*})\,\nabla_{\theta}\log\pi_{\theta}(z\mid x)
+        +
+        \nabla_{\theta}r_{\theta}(x,z,Y^{*})
+        \Big].
+\end{align*}
+Now expand the reference-side derivative:
+\begin{align*}
+    \nabla_{\theta}r_{\theta}(x,z,Y^{*})
+     & =
+    \nabla_{\theta}
+    \sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z) \\
+     & =
+    \sum_{y\in Y^{*}}
+    \nabla_{\theta}\pi_{\theta}(y\mid x,z)   \\
+     & =
+    \sum_{y\in Y^{*}}
+    \pi_{\theta}(y\mid x,z)\,\nabla_{\theta}\log\pi_{\theta}(y\mid x,z).
+\end{align*}
+Therefore,
+\[
+    \nabla_{\theta}J_{\mathrm{MRVF}}
+    =
+    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
+    \Bigg[
+        r_{\theta}(x,z,Y^{*})\,\nabla_{\theta}\log\pi_{\theta}(z\mid x)
+        +
+        \sum_{y\in Y^{*}}
+        \pi_{\theta}(y\mid x,z)\,\nabla_{\theta}\log\pi_{\theta}(y\mid x,z)
+        \Bigg].
+\]
+
+It is sometimes useful to rewrite the second term in normalized form. Whenever \(r_{\theta}(x,z,Y^{*})>0\), define
+\[
+    w_{\theta}(y\mid x,z,Y^{*})
+    :=
+    \frac{\pi_{\theta}(y\mid x,z)}{r_{\theta}(x,z,Y^{*})}
+    \,\mathbb{I}\{y\in Y^{*}\}.
+\]
+Then \(w_{\theta}(\cdot\mid x,z,Y^{*})\) is a probability distribution over the observed reference set, and
+\[
+    \nabla_{\theta}r_{\theta}(x,z,Y^{*})
+    =
+    r_{\theta}(x,z,Y^{*})
+    \sum_{y\in Y^{*}}
+    w_{\theta}(y\mid x,z,Y^{*})
+    \nabla_{\theta}\log\pi_{\theta}(y\mid x,z).
+\]
+Equivalently,
+\[
+    \nabla_{\theta}\log r_{\theta}(x,z,Y^{*})
+    =
+    \sum_{y\in Y^{*}}
+    w_{\theta}(y\mid x,z,Y^{*})
+    \nabla_{\theta}\log\pi_{\theta}(y\mid x,z),
+\]
+and hence
+\[
+    \nabla_{\theta}J_{\mathrm{MRVF}}
+    =
+    \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
+    \Big[
+        r_{\theta}(x,z,Y^{*})
+        \big(
+        \nabla_{\theta}\log\pi_{\theta}(z\mid x)
+        +
+        \nabla_{\theta}\log r_{\theta}(x,z,Y^{*})
+        \big)
+        \Big].
+\]
+
+This form clarifies the difference from single-reference VeriFree. In VeriFree, the direct term is the gradient of \(\log\pi_{\theta}(y^{*}\mid x,z)\) for one reference. In MRVF, the direct term is the gradient of \(\log \sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z)\). The update therefore does not privilege one reference a priori, it increases total mass on the observed set, with each reference weighted by the current policy mass assigned to it. If one reference already dominates, the gradient concentrates there. If mass is spread across several references, the gradient reinforces them jointly. This is why MRVF is not simply a notational variant of VeriFree: the optimization geometry changes from a single target string to a log-sum over many targets.
 
 \subsection{Incomplete observed references}
 
-In the present setting, \(Y^{*}(x)\) is not an exhaustive ground truth. It is a retrieved subset of jokes judged similar to the prompt in embedding space. Therefore, incompleteness is built into the methodology from the outset. Suppose an observed subset \(Y\subset Y^{*}\) is used in practice. Then
-\[
-    r_{\theta}(x,z,Y)=\sum_{y\in Y}\pi_{\theta}(y\mid x,z).
-\]
-If each member of \(Y^{*}\) is included with a uniform probability \(\rho\), then
-\[
-    \mathbb{E}_{Y}[r_{\theta}(x,z,Y)] = \rho\,r_{\theta}(x,z,Y^{*}).
-\]
+The observed set \(Y^{*}(x)\) is still not the full set of good jokes. Two distinct forms of incompleteness arise.
 
-% TODO: Talk about the solution to scale shift - GRPO is scale-invariant
-Thus the observed reward is proportional in expectation to the full-set reward. This preserves the objective up to scale, but it does not remove the false-negative problem: probability mass shifted toward observed references must come from somewhere, and that somewhere includes both bad jokes and unseen good jokes.
+\paragraph{Structural incompleteness.}
+Even if the repository retrieves several references for a prompt, there may exist many additional jokes in the latent set \(Y_{\mathrm{true}}(x)\) that are also valid but unobserved. This is unavoidable in creative domains. A finite dataset cannot enumerate all acceptable punchlines for a weak prompt.
 
-To reduce this risk, the proposed optimization includes a KL penalty relative to a reference policy:
+\paragraph{Computational incompleteness.}
+Even within the observed set \(Y^{*}(x)\), computing
+\[
+    r_{\theta}(x,z,Y^{*})=\sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z)
+\]
+may become expensive when \(|Y^{*}|\) is large. One may therefore evaluate the sum on a sampled subset \(Y\subseteq Y^{*}\).
+
+Suppose \(Y\) is sampled uniformly without replacement from \(Y^{*}\), and each reference \(y\in Y^{*}\) has inclusion probability
+\[
+    \rho = P(y\in Y)=\frac{|Y|}{|Y^{*}|}.
+\]
+Define the subset reward
+\[
+    r_{\theta}(x,z,Y)
+    :=
+    \sum_{y\in Y}\pi_{\theta}(y\mid x,z)
+    =
+    \sum_{y\in Y^{*}}
+    \mathbb{I}\{y\in Y\}\,\pi_{\theta}(y\mid x,z).
+\]
+Taking expectation over the random subset,
+\begin{align*}
+    \mathbb{E}_{Y}\big[r_{\theta}(x,z,Y)\big]
+     & =
+    \sum_{y\in Y^{*}}
+    \mathbb{E}_{Y}\big[\mathbb{I}\{y\in Y\}\big]\,
+    \pi_{\theta}(y\mid x,z)                  \\
+     & =
+    \sum_{y\in Y^{*}}
+    P(y\in Y)\,\pi_{\theta}(y\mid x,z)       \\
+     & =
+    \rho
+    \sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z) \\
+     & =
+    \rho\,r_{\theta}(x,z,Y^{*}).
+\end{align*}
+Thus the subset reward is proportional in expectation to the full observed-set reward.
+
+This is where GRPO baselining becomes relevant. Suppose that for a fixed prompt \(x\) all sampled rewards in a group are multiplied by the same positive factor \(\rho_x\), for example because only a fraction of the observed references is used. If one standardizes rewards within the group,
+\[
+    \widetilde A_i
+    =
+    \frac{\hat r_i - \mu_x}{\sigma_x+\varepsilon},
+    \qquad
+    \mu_x=\frac{1}{G}\sum_{j=1}^{G}\hat r_j,
+\]
+then multiplying every \(\hat r_i\) by \(\rho_x>0\) multiplies both the numerator and denominator by the same factor, leaving \(\widetilde A_i\) unchanged. This is the sense in which GRPO group standardization is scale-invariant. It mitigates reward-magnitude shifts in the score-function term, although it does not recover information lost through missing references and does not by itself solve the bias of the direct reference gradient.
+
+Another fundamental issue is the false-negative problem. Optimizing
+\[
+    r_{\theta}(x,z,Y^{*})=\sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z)
+\]
+increases probability mass on observed references. Because the conditional distribution over all strings sums to one,
+\[
+    \sum_{y\in\mathcal{Y}}\pi_{\theta}(y\mid x,z)=1,
+\]
+that increased mass must come from \(\mathcal{Y}\setminus Y^{*}\). Unfortunately, this complement contains not only bad jokes but also unobserved good jokes from \(Y_{\mathrm{true}}(x)\setminus Y^{*}(x)\). In other words, the training signal can inadvertently suppress valid but unseen humorous continuations. This risk is not a defect of the gradient derivation, it is a structural consequence of learning from incomplete supervision in an intrinsically many-solution domain.
+
+To reduce this risk, the proposed optimization includes a Kullback-Leibler penalty relative to a reference policy \(\pi_{\mathrm{ref}}\):
 \[
     \max_{\theta}
-    \;\mathbb{E}_{x,z}\big[r_{\theta}(x,z,Y^{*}(x))\big]
+    \;
+    \mathbb{E}_{x,z}\big[r_{\theta}(x,z,Y^{*}(x))\big]
     -
-    \beta\,\mathbb{E}_{x}\Big[\mathrm{KL}\big(\pi_{\theta}(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x)\big)\Big].
+    \beta\,
+    \mathbb{E}_{x}\Big[
+        \mathrm{KL}\big(
+        \pi_{\theta}(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x)
+        \big)
+        \Big].
 \]
-The purpose of this term is not merely regularization in the abstract. In a creative domain with incomplete references, it explicitly protects against overly aggressive reallocation of probability mass away from plausible but unobserved jokes.
+Equivalently, one may view the problem in constrained form,
+\[
+    \max_{\theta}\;
+    \mathbb{E}_{x,z}\big[r_{\theta}(x,z,Y^{*}(x))\big]
+    \quad
+    \text{s.t.}
+    \quad
+    \mathbb{E}_{x}
+    \Big[
+        \mathrm{KL}\big(
+        \pi_{\theta}(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x)
+        \big)
+        \Big]
+    \le \varepsilon.
+\]
+In the present context the KL term is not merely generic regularization. Its methodological role is to discourage overly aggressive redistribution of probability mass away from the reference model when the observed reference sets are known to be incomplete.
 
 \subsection{Proposed training loop}
 
-% TODO: The is almost no discussion of grpo / rloo / etc, it is not clear where it comes from. be more specific
+The intended training stage samples multiple reasoning traces for the same prompt and uses their rewards to update the reasoning policy. For a prompt \(x\), sample a group
+\[
+    z_1,\dots,z_G \sim \pi_{\theta}(z\mid x).
+\]
+For each \(z_i\), compute the multi-reference reward
+\[
+    \hat r_i
+    :=
+    r_{\theta}(x,z_i,Y^{*}(x))
+    =
+    \sum_{y\in Y^{*}(x)}
+    \pi_{\theta}(y\mid x,z_i).
+\]
+In practice, each \(\pi_{\theta}(y\mid x,z_i)\) is obtained by teacher forcing on the reference sequence \(y\). Since these sequence probabilities are very small, implementation should accumulate token log-probabilities and, where necessary, use stabilization such as \(\log\sum\exp\) before converting back to probabilities or normalized weights.
 
-For a prompt \(x\), sample a group of reasoning traces
+The gradient naturally decomposes into three parts:
 \[
-    z_1,\dots,z_G \sim \pi_{\theta}(z\mid x),
-\]
-and compute the corresponding rewards
-\[
-    \hat r_i = r_{\theta}(x,z_i,Y^{*}(x)).
-\]
-For the score-function term over reasoning traces, a leave-one-out baseline may be used:
-\[
-    A_i = \hat r_i - \frac{1}{G-1}\sum_{j\neq i}\hat r_j.
-\]
-This yields the unbiased reasoning-gradient estimator
-\[
-    g_z = \frac{1}{G}\sum_{i=1}^{G} A_i\,\nabla_{\theta}\log\pi_{\theta}(z_i\mid x).
-\]
-The reference-probability contribution is
-\[
-    g_r = \frac{1}{G}\sum_{i=1}^{G} \nabla_{\theta} r_{\theta}(x,z_i,Y^{*}(x)),
-\]
-which can equivalently be written in log-derivative form wherever \(r_{\theta}(x,z_i,Y^{*}(x)) > 0\). The full update then adds the KL term:
-\[
-    \nabla_{\theta}J_{\mathrm{MRVF}} \approx g_z + g_r + g_{\mathrm{KL}}.
+    \nabla_{\theta}J_{\mathrm{MRVF}}
+    =
+    g_{z}+g_{r}+g_{\mathrm{KL}}.
 \]
 
-The practical importance of the implemented data pipeline is now clear. Without constructing prompt-conditioned multi-reference sets, the reward \(r_{\theta}(x,z,Y^{*}(x))\) cannot be estimated. The software pipeline is therefore not auxiliary but operational to the theory.
+\paragraph{Reasoning term.}
+The score-function part over \(z\) is estimated from sampled traces and therefore benefits from variance reduction. A clean choice is the leave-one-out baseline
+\[
+    b_i
+    =
+    \frac{1}{G-1}\sum_{j\neq i}\hat r_j,
+    \qquad
+    A_i=\hat r_i-b_i.
+\]
+The corresponding estimator is
+\[
+    g_{z}
+    =
+    \frac{1}{G}\sum_{i=1}^{G}
+    A_i\,\nabla_{\theta}\log\pi_{\theta}(z_i\mid x).
+\]
+This is the same logic that motivates RLOO estimators: each trace is compared against the other traces sampled for the same prompt. If desired, one may further normalize the \(A_i\) values within the group to reduce prompt-specific reward-scale variation, in the spirit of GRPO. Such normalization improves robustness but is no longer strictly unbiased because the scale estimate itself depends on the sampled group.
 
-\section{Evaluation protocol for the preliminary thesis}
+\paragraph{Reference term.}
+For the direct answer-side contribution, the correct observed-set gradient is
+\[
+    g_{r}
+    =
+    \frac{1}{G}\sum_{i=1}^{G}
+    \nabla_{\theta}r_{\theta}(x,z_i,Y^{*}(x))
+    =
+    \frac{1}{G}\sum_{i=1}^{G}
+    \sum_{y\in Y^{*}(x)}
+    \pi_{\theta}(y\mid x,z_i)\,
+    \nabla_{\theta}\log\pi_{\theta}(y\mid x,z_i).
+\]
+Equivalently, using the normalized within-set weights
+\[
+    w_{i,y}
+    :=
+    \frac{\pi_{\theta}(y\mid x,z_i)}
+    {\hat r_i}
+    \,\mathbb{I}\{y\in Y^{*}(x)\},
+\]
+one may write
+\[
+    g_{r}
+    =
+    \frac{1}{G}\sum_{i=1}^{G}
+    \hat r_i
+    \sum_{y\in Y^{*}(x)}
+    w_{i,y}\,
+    \nabla_{\theta}\log\pi_{\theta}(y\mid x,z_i),
+\]
+whenever \(\hat r_i>0\). This form makes the geometry explicit: each trace receives a total weight \(\hat r_i\), and within that trace the gradient is distributed across references according to the current policy mass on each reference.
 
-The present repository supports one implemented benchmark and one broader planned benchmark.
+\paragraph{KL term.}
+Finally,
+\[
+    g_{\mathrm{KL}}
+    =
+    -\beta\,
+    \nabla_{\theta}
+    \mathrm{KL}\big(
+    \pi_{\theta}(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x)
+    \big).
+\]
+The full update for a minibatch averages these prompt-level contributions over sampled prompts.
 
-The implemented benchmark is automatic pairwise comparison of generated jokes across models, followed by Bradley-Terry aggregation. This is the method that can be honestly reported as operational at the current stage.
+The practical importance of the implemented pipeline is now clear. Without prompt-conditioned multi-reference sets \(Y^{*}(x)\), neither \(\hat r_i\) nor \(g_r\) can be computed. The data pipeline is therefore not auxiliary to the theory, it provides the observed structure on which MRVF optimization depends.
 
-The planned benchmark extends evaluation along multiple axes motivated by recent humor-evaluation work: prompt adherence, novelty, human-likeness, and funniness. These dimensions should ideally be assessed with calibrated rubrics and with a combination of human annotation and LLM-based evaluation. That extension is consistent with the literature review and with the theoretical goals of the project, but it is not yet implemented in the checked-in code.
+\subsection{Note on baselining}
 
-Accordingly, the methodological contribution of this preliminary thesis is twofold. On the engineering side, it demonstrates a working pipeline that converts raw joke corpora into weak prompts with retrieved multi-reference sets and supports baseline generation plus automatic comparison. On the theoretical side, it formalizes how these constructed reference sets can be used in a verifier-free reinforcement-learning objective tailored to creative generation.
+Variance reduction is straightforward only for the score-function term. The reason is that \(z\) is genuinely sampled from \(\pi_{\theta}(z\mid x)\). If \(b(x,z_{-i})\) is any baseline that does not depend on the sampled variable \(z_i\) itself, then
+\begin{align*}
+    \mathbb{E}_{z_i\sim\pi_{\theta}(\cdot\mid x)}
+    \big[
+        b(x,z_{-i})\,\nabla_{\theta}\log\pi_{\theta}(z_i\mid x)
+        \big]
+     & =
+    b(x,z_{-i})
+    \sum_{z_i}\pi_{\theta}(z_i\mid x)\,
+    \nabla_{\theta}\log\pi_{\theta}(z_i\mid x)       \\
+     & =
+    b(x,z_{-i})
+    \sum_{z_i}\nabla_{\theta}\pi_{\theta}(z_i\mid x) \\
+     & =
+    b(x,z_{-i})\,\nabla_{\theta}1                    \\
+     & = 0.
+\end{align*}
+This is why the leave-one-out baseline is unbiased for the reasoning term.
+
+The reference term is different. It is not an expectation over sampled answers \(y\sim\pi_{\theta}(\cdot\mid x,z)\), it is a direct derivative of the summed reference probability. Consequently there is no identity of the form
+\[
+    \mathbb{E}_{y}\big[\nabla_{\theta}\log\pi_{\theta}(y\mid x,z)\big]=0
+\]
+available for centering. For the single-reference case, for example,
+\[
+    \mathbb{E}_{z}
+    \big[
+        (r_{\theta}(x,z,y^{*})-b(x))
+        \nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z)
+        \big]
+\]
+equals
+\[
+    \mathbb{E}_{z}
+    \big[
+        r_{\theta}(x,z,y^{*})
+        \nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z)
+        \big]
+    -
+    b(x)\,
+    \mathbb{E}_{z}
+    \big[
+        \nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z)
+        \big],
+\]
+and the second term is not generally zero. The same issue persists in the multi-reference case with \(\nabla_{\theta}\log r_{\theta}(x,z,Y^{*})\). Therefore baselines that are harmless for the score-function term become biased if naively applied to the direct reference gradient.
+
+This distinction is important for the design of the training algorithm. The reasoning term should use variance-reduction machinery such as leave-one-out baselines or carefully chosen group normalization. The reference term should instead be computed as directly as possible from the observed-set probability, accepting that it is a deterministic but potentially biased proxy for the true reward produced by \(Y_{\mathrm{true}}(x)\).
+
+Taken together, these observations explain the overall structure of the proposal. MRVF inherits the key computational advantage of verifier-free learning: it avoids external verifiers and explicit reward sampling over final answers but it must be adapted to the multi-reference, incomplete characteristic of humor. The resulting objective is mathematically tractable, but its limitations are part of the thesis contribution: incompleteness, false negatives, and estimator design are central to the problem.

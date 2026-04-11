@@ -31,7 +31,7 @@ More explicit generation systems strengthen this line of work. \citet{Tikhonov20
 
 These papers are important because they collectively reject the assumption that humor is best produced by an instant completion. Instead, they model humor generation as a search process over premises, associations, reframings, and audience-sensitive choices, similar to how human experts approach comedy writing or any creative tasks. An informational gap between the premise and the joke which is only filled out during inference that may be latent. At the same time, they share a limitation that is directly relevant to the present thesis: the structure of the reasoning process is defined rigidly. The number of stages, the type of intermediate representations, and the order of operations are fixed by the researcher. Such systems are therefore strong demonstrations of the usefulness of reasoning, but weaker evidence that a model can learn for itself when and how to reason for humor.
 
-\section{Why standard post-training is a poor fit for humor}
+\section{Standard post-training is a poor fit for humor}
 
 The most straightforward route to improving humor generation is supervised fine-tuning on large joke corpora. In practice, however, that objective is a poor match for the structure of the task. Joke datasets contain many repeated setups, familiar wordplay patterns, and conventional punchline forms. As a result, supervised fine-tuning can improve stylistic plausibility without necessarily improving creative generalization. Large humor resources such as rJokes are valuable for scale and topical variety, but they were not constructed as multi-reference generation datasets in which many distinct outputs can simultaneously be correct \citep{weller2020rjokes}.
 
