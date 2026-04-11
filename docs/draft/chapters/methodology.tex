@@ -1,14 +1,15 @@
 \section{Research scope and implementation status}
 
-The methodology of this preliminary thesis has two layers. The first layer is an implemented data and evaluation pipeline, already present in the repository. The second layer is a proposed training objective, namely multi-reference verifier-free reinforcement learning (MRVF), which is formulated mathematically but not yet implemented in code. This distinction is important for the scope of the present work. The repository already contains pipelines for corpus construction, embedding generation, keyword extraction, reference retrieval, candidate generation, and automatic pairwise evaluation. However, the training stage itself remains future work. Consequently, this chapter distinguishes between what is currently operational in the codebase and what is proposed as the next stage of the project.
+The methodology of this preliminary thesis has two layers. The first layer is an implemented data and evaluation pipeline, already present in the repository. The second layer is a proposed training objective, namely multi-reference verifier-free reinforcement learning (MRVF), which is formulated mathematically but not yet fully implemented in code. This distinction is important for the scope of the present work. The repository already contains pipelines for corpus construction, embedding generation, keyword extraction, reference retrieval, candidate generation, and automatic pairwise evaluation. However, the training stage itself remains future work. Consequently, this chapter distinguishes between what is currently operational in the codebase and what is proposed as the next stage of the project.
 
-At a high level, the implemented system constructs a weakly supervised multi-reference dataset from raw joke corpora. Jokes are first merged into a unified corpus, embedded with a dense retrieval model, and reduced to a small set of salient keywords. These keywords are then expanded into one-keyword and two-keyword prompt groups, which are used to retrieve semantically related joke references from the embedding index. The resulting prompt--reference structure supports two immediate uses. First, it provides a pilot substrate for baseline generation and automatic evaluation. Second, it defines the reference sets required by the proposed MRVF training objective.
+At a high level, the implemented system constructs a weakly supervised multi-reference dataset from raw joke datasets. Jokes are first merged into a unified corpus, embedded with a dense retrieval model, and reduced to a small set of keywords with an emb. These keywords are then expanded into n-gram prompt groups, which are then used to retrieve semantically related jokes from the embedding index. The resulting references supports two immediate uses. First, it provides data for baseline generation and automatic evaluation. Second, it defines training and validation sets required by the proposed MRVF training objective.
 
-\section{Corpus construction}
+\section{Dataset construction}
 
-The empirical basis of the project is a merged corpus built from two public joke collections: the Short Jokes dataset and the rJokes dataset. In the repository, this stage is implemented in \texttt{src/pipelines/jokes.py}. The pipeline downloads the raw files from pinned source revisions, converts them into parquet format, and preserves source metadata for each joke. For every row, the stored fields are \texttt{id}, \texttt{text}, \texttt{source\_name}, \texttt{source\_filename}, and \texttt{source\_id}. After preprocessing the two corpora separately, they are concatenated and assigned a new global integer identifier.
+% TODO: Add dataset sizes here
+The empirical basis is a merged corpus built from two public joke collections: the Short Jokes dataset and the rJokes dataset. In the repository, this stage is implemented in \texttt{src/pipelines/jokes.py}. The pipeline downloads the raw files from pinned source revisions, converts them into parquet format, and preserves source metadata for each joke. For every row, the stored fields are \texttt{id}, \texttt{text}, \texttt{source\_name}, \texttt{source\_filename}, and \texttt{source\_id}. After preprocessing the two corpora separately, they are concatenated and assigned a new global integer identifier.
 
-This design is intentionally conservative. The pipeline does not perform aggressive text normalization beyond removing empty entries and standardizing storage format. For humor, such caution is desirable, because seemingly minor textual details---punctuation, wording, or line breaks---may contribute to comedic effect. Retaining source metadata is also useful for later analysis of domain differences, duplicate detection, and possible source-specific biases.
+This design is intentionally conservative. The pipeline does not perform aggressive text normalization beyond removing empty entries and standardizing storage format. For humor, such caution is desirable, because seemingly minor textual details, such as punctuation, wording, or line breaks may contribute to comedic effect. Retaining source metadata is also useful for later analysis of domain differences, duplicate detection, and possible source-specific biases.
 
 Formally, let the merged corpus be denoted
 \[
@@ -16,40 +17,38 @@ Formally, let the merged corpus be denoted
 \]
 where \(y_i\) is the joke text, \(i\) is a global identifier, and \(s_i\) collects source metadata. This corpus is the common starting point for all later stages.
 
-\section{Dense embedding generation}
+\section{Dense embedding index}
 
-The next stage embeds each joke in a dense semantic vector space. This is implemented in \texttt{src/pipelines/embeddings.py}. The current default configuration uses the model \texttt{qwen/qwen3-embedding-8b} with embedding dimensionality 1024. Embeddings are computed asynchronously in batches, written to parquet shards, and stored as pairs \((i, e_i)\), where \(i\) is the global joke identifier and \(e_i \in \mathbb{R}^{1024}\) is the corresponding embedding.
+The next stage embeds each joke in a dense semantic vector space. This is implemented in \texttt{src/pipelines/embeddings.py}. The current default configuration uses the model \texttt{Qwen3-Embedding-8B} with embedding dimensionality 1024, reduced from the original size of 4096 with Matryoshka Representation Learning. Embeddings are computed asynchronously in batches, written to parquet shards, and stored as pairs \((i, e_i)\), where \(i\) is the global joke identifier and \(e_i \in \mathbb{R}^{1024}\) is the corresponding embedding.
 
 The role of this stage is twofold. First, the joke embeddings are later used to score candidate keywords by semantic relevance. Second, they define the vector index used for retrieving multi-reference joke sets. In other words, the embedding space is the shared representation on which both keyword extraction and reference retrieval depend.
 
-The checked-in entrypoints currently run this stage on a pilot subset rather than the full corpus. This should be understood as an implementation choice for an early-stage thesis, not as a conceptual limitation of the method.
+\section{Keyword extraction as weak prompt retrieval}
 
-\section{Keyword extraction as weak prompt approximation}
+Each joke is assumed to have a set of weak prompts that it plausibly answers. For example, ``write a joke about a chicken'' is considered a viable prompt for ``why did the chicken crossed the road'' joke. Keyword extraction stage is aimed at constructing weak prompts based on the keywords of jokes. This stage is implemented in \texttt{src/pipelines/keywords.py}.
 
-A major correction to the earlier research plan is that the current repository does not yet implement generative prompt inversion from jokes to free-form prompts. Instead, it approximates weak prompts through salient keyword extraction. This stage is implemented in \texttt{src/pipelines/keywords.py}.
-
-For each joke \(y_i\), the pipeline first generates a candidate pool of surface n-grams with a \texttt{CountVectorizer}-based analyzer. Under the default configuration, this analyzer uses unigrams only, removes English stopwords, and keeps at most 64 candidate terms per joke. Let the resulting candidate set be
+For each joke \(y_i\), the pipeline first generates a candidate pool of n-grams with a \texttt{CountVectorizer} analyzer. Under the default configuration, this analyzer uses unigrams only, removes English stopwords, and keeps at most 64 candidate terms per joke. Let the resulting candidate set be
 \[
     C(y_i)=\{c_{i1},\dots,c_{im}\}.
 \]
-Each candidate term is then embedded with the same embedding family used for jokes. If \(e(y_i)\) denotes the joke embedding and \(e(c)\) denotes the embedding of a candidate keyword, the relevance score is computed by cosine similarity:
+Each candidate term is then embedded with the same embedding model used for jokes. If \(e(y_i)\) denotes the joke embedding and \(e(c)\) denotes the embedding of a candidate keyword, the relevance score is computed by cosine similarity:
 \[
-    s_{\mathrm{rel}}(c,y_i)=\frac{e(c)^\top e(y_i)}{\lVert e(c)\rVert\,\lVert e(y_i)\rVert}.
+    s(c,y_i)=\frac{e(c)^\top e(y_i)}{\lVert e(c)\rVert\,\lVert e(y_i)\rVert}.
 \]
 
-Selecting only the most similar candidates would often yield redundant keywords. To reduce redundancy, the pipeline applies maximal marginal relevance (MMR), choosing up to three keywords while balancing relevance against diversity. Under the default configuration, the diversity coefficient is 0.7 and the number of retained keywords is \(3\). The output of this stage is therefore a compact keyword representation
+Selecting only the most similar candidates would often yield redundant keywords. To reduce redundancy, the pipeline applies maximal marginal relevance (MMR), choosing multiple keywords while balancing relevance against diversity. Under the default configuration, the diversity coefficient is 0.7 and the number of retained keywords is \(3\). The output of this stage is therefore a compact keyword representation
 \[
     K(y_i)=\{k_{i1},k_{i2},k_{i3}\},
 \]
 possibly with fewer than three items when the candidate pool is small.
 
-Methodologically, these keywords should not be interpreted as full latent prompts. They are weaker objects: compact semantic handles that capture topical or lexical anchors of the joke. This is a pragmatic approximation. It does not solve the joke-to-prompt inversion problem in a linguistically rich sense, but it yields a tractable intermediate representation from which multiple prompt variants can be constructed.
+Methodologically, these keywords should not be interpreted as full latent prompts. They are weaker objects, n-grams that capture topical or lexical anchors of the joke. This is a pragmatic approximation. It does not solve the joke-to-prompt inversion in a complete sense, but it yields a tractable representation from which multiple prompt options can be constructed.
 
 \section{Reference construction by keyword grouping and retrieval}
 
 \subsection{Keyword grouping and prompt rendering}
 
-The reference-construction stage is implemented in \texttt{src/pipelines/references.py}. For each joke-level keyword set \(K(y_i)\), the pipeline enumerates all unique keyword groups whose size lies between \texttt{min\_keywords} and \texttt{max\_keywords}. Under the default configuration, these values are 1 and 2, so the pipeline constructs all one-keyword and two-keyword groups. If
+The reference construction stage is implemented in \texttt{src/pipelines/references.py}. For each joke keyword set \(K(y_i)\), the pipeline enumerates all unique keyword combinations whose size lies between \texttt{min\_keywords} and \texttt{max\_keywords}. Under the default configuration, these values are 1 and 2, so the pipeline constructs all one-keyword and two-keyword groups. If
 \[
     K(y_i)=\{k_1,k_2,k_3\},
 \]
@@ -57,20 +56,20 @@ then the generated groups are
 \[
     \{k_1\},\ \{k_2\},\ \{k_3\},\ \{k_1,k_2\},\ \{k_1,k_3\},\ \{k_2,k_3\}.
 \]
-Each group is rendered into a natural-language prompt using the template
+Each group is rendered into a natural language prompt using the template
 \begin{quote}
     \ttfamily
     Write a joke using the following keyword(s): \{keywords\}
 \end{quote}
-This prompt serves two purposes: it is the textual form later given to generation models, and it is also the object embedded for reference retrieval.
+This prompt serves two purposes: it is the textual form later given to generation models, and it is also the object embedded as a query for reference retrieval.
 
-This design creates a controlled spectrum of prompt specificity. Single-keyword prompts are broad and often admit many possible jokes. Two-keyword prompts are more constrained and tend to produce more coherent reference sets. The present implementation intentionally stops at two keywords because larger groups would quickly become over-specific, reducing the number of plausible distinct references per prompt.
+This design creates a controlled but diverse spectrum of prompts. Single keyword prompts are broad, topical and often admit many possible jokes. Two keyword prompts are more constrained and tend to retrieve more precise candidates. The present implementation stops at two keywords because larger groups would quickly become too specific, reducing the number of plausible distinct references per prompt.
 
-\subsection{Embedding-based reference retrieval}
+\subsection{Reference retrieval with embedding index}
 
-Once prompt strings are formed, the pipeline embeds them and retrieves nearby jokes from a FAISS index built over the full joke-embedding collection. The retrieval index is an IVF Flat inner-product index. Before indexing and search, vectors are normalized, so inner product corresponds to cosine similarity. Under the default configuration, the main parameters are:
+Once prompt strings are formed, the pipeline embeds them as queries and retrieves nearby jokes from a FAISS index built over the full joke-embedding collection. The retrieval index is an inverted file index (IVF). Before indexing and search, vectors are normalized, so that inner product corresponds to cosine similarity. Under the default configuration, the main parameters are:
 \begin{itemize}
-    \item embedding model: \texttt{qwen/qwen3-embedding-8b};
+    \item embedding model: \texttt{Qwen3-Embedding-8B};
     \item dimensionality: 1024;
     \item \texttt{faiss\_nlist}: 4096;
     \item \texttt{faiss\_nprobe}: 32;
@@ -88,11 +87,9 @@ The search procedure retrieves more than \(k\) candidates, filters out those who
     Y^{*}(x)=\{y_1,\dots,y_n\}, \qquad n \le 5.
 \]
 
-This stage operationalizes the central object of the thesis: a prompt associated with multiple candidate joke references rather than with a single gold target. Importantly, the retrieved set is not an exhaustively annotated set of all good jokes for \(x\). It is a retrieved approximation of that set. This matters both empirically and theoretically. Empirically, retrieved references may contain noise or omit valid alternatives. Theoretically, the incompleteness of \(Y^{*}(x)\) becomes a core part of the later MRVF analysis rather than a secondary inconvenience.
+This stage implements the central point of the thesis: a prompt associated with multiple candidate joke references rather than with a single ground truth. Importantly, the retrieved set is not an exhaustively annotated set of all good jokes for \(x\). It is a retrieved approximation of that set. This matters both empirically and theoretically. Empirically, retrieved references may contain noise or omit valid alternatives. Theoretically, the incompleteness of \(Y^{*}(x)\) becomes a core part of the later MRVF analysis rather than a secondary inconvenience.
 
-A practical consequence of the current implementation is that some keyword groups may retrieve no reference passing the similarity threshold. Such rows are still representable in the dataset because candidate generation uses the prompt itself, not the reference texts. However, rows with empty reference sets would need to be filtered or specially handled before actual MRVF training.
-
-\subsection{Deduplication and split construction}
+\subsection{Deduplication and splitting}
 
 After retrieval, the resulting dataset contains rows of the form
 \[
@@ -100,40 +97,40 @@ After retrieval, the resulting dataset contains rows of the form
 \]
 where \(x_i\) is the keyword-based prompt, \(Y^{*}(x_i)\) is the retrieved reference set, and \(S(x_i)\) is the vector of retrieval scores. Different source jokes can generate identical keyword groups, so the repository deduplicates the dataset by the \texttt{keywords} field, keeps the first occurrence, and reassigns row identifiers.
 
-The deduplicated dataset is then split into train, validation, and test partitions. The current implementation uses a two-stage random split with \texttt{test\_fraction}=0.1, \texttt{validation\_fraction}=0.1, and a fixed random seed of 42. The result is a standard 80/10/10 partition of the keyword-prompt dataset. Separate parquet shards are written for the full dataset and for each split.
+The deduplicated dataset is then split into train, validation, and test partitions. The current implementation uses a two-stage random split with \texttt{test\_fraction}=0.1, \texttt{validation\_fraction}=0.1, and a fixed random seed. Separate parquet shards are written for the full dataset and for each split.
 
-\section{Candidate generation pipeline}
+\section{Candidate generation}
 
-The repository already supports baseline generation over the reference dataset. This stage is implemented in \texttt{src/pipelines/candidates.py}. For a selected model and dataset split, the pipeline iterates over the prompt rows and generates one candidate joke per row using a chat-completion API. The generation prompt is the same prompt template used in reference construction:
+This stage supports candidate generation over the reference dataset and is implemented in \texttt{src/pipelines/candidates.py}. For a selected model and dataset split, the pipeline iterates over the prompt rows and generates one candidate joke using an OpenAI-compatible Chat Completion API. The generation prompt is the same prompt template used in reference construction:
 \begin{quote}
     \ttfamily
     Write a joke using the following keyword(s): \{keywords\}
 \end{quote}
-Under the default configuration, candidate generation uses temperature \(1.0\) and allows up to 128 completion tokens.
+Under the default configuration, candidate generation uses temperature \(1.0\) and allows up to 128 completion tokens. It is important keep the jokes short to simplify evaluation for both LLM-as-a-judge and human settings.
 
-The output schema contains four fields: row identifier, keyword group, model name, and generated text. Candidate files are stored under a per-model, per-split directory structure. This organization is important for later evaluation, because it allows outputs from several models to be aligned by the same underlying prompt row.
+The output schema contains four fields: row identifier, keyword group, model name, and generated text. Candidate files are stored under a per-model, per-split directory structure. This organization is important for later evaluation, because it allows outputs from several models to be aligned by the same underlying identifier and prompt.
 
-Methodologically, this candidate stage should be understood as a benchmarking layer rather than as the core contribution of the thesis. It provides the artifacts needed to compare baseline models, prompt variants, and future MRVF-trained checkpoints once those checkpoints exist.
+Methodologically, this candidate stage should be understood as a benchmarking layer. It provides the artifacts needed to compare baseline models (pre-trained base, instruct and thinking versions) and future trained checkpoints.
 
-\section{Implemented automatic evaluation}
+\section{Candidate evaluation}
 
-\subsection{Pairwise comparison setup}
+\subsection{Pairwise comparison}
 
-Automatic evaluation is implemented in \texttt{src/pipelines/evaluation.py}. The pipeline first concatenates candidate datasets from multiple models. It then groups candidates by reference-set identifier and model name, and constructs pairwise comparisons across all model pairs that produced outputs for the same prompt. Left-right ordering is randomized with a fixed seed in order to reduce position bias.
+Automatic evaluation is implemented in \texttt{src/pipelines/evaluation.py}. The pipeline first concatenates candidate datasets from multiple models. It then groups candidates by reference identifier and model name, and constructs pairwise comparisons across all model pairs that produced outputs for the same prompt. Left-right ordering is randomized with a fixed seed in order to reduce position bias.
 
-The evaluation prompt is deliberately simple. The user-facing prompt contains the shared joke prompt together with a left and a right candidate. The system instruction tells the evaluator to act as an expert judge of humor quality, choose which joke is funnier for a general audience, avoid ties, and return strict JSON. Under the default configuration, the judge model runs at temperature \(0\).
+The evaluation prompt is deliberately simple, it contains the shared joke prompt together with a left and a right candidate. The system instruction tells the annotator to act as an judge of humor quality, choose which joke is funnier for a general audience, avoid ties, and return strict JSON. Under the default configuration, the judge model runs at temperature \(0\).
 
-This evaluation layer captures only one dimension of quality: comparative funniness under a shared prompt. It does not yet implement the fuller multidimensional evaluation proposed elsewhere in the thesis, such as separate rubric-based judgments for prompt adherence, novelty, human-likeness, and funniness. Nor does it yet include human annotation. Accordingly, the current automatic evaluator should be described as the implemented pilot benchmark, not as the final evaluation framework.
+This evaluation layer captures only comparative funniness under a shared prompt. It does not yet implement the multidimensional evaluation discussed in the literature review, such as separate rubric-based judgments for prompt adherence, novelty, human-likeness, and funniness. Nor does it yet include human annotation. These stages are future work as they depend on the complete training procedure.
 
 \subsection{Leaderboard aggregation}
 
-Pairwise judgments are aggregated into a leaderboard with wins, losses, number of comparisons, win rate, and Bradley--Terry scores. Let \(\mathcal{M}\) denote the set of evaluated models. For every judged pair \((m_a,m_b)\), the evaluator records a binary win for one side. The pipeline then estimates Bradley--Terry strengths and reports their logarithms as \texttt{bt\_score} values.
+Pairwise judgments are aggregated into a leaderboard with wins, losses, number of comparisons, win rate, and Bradley-Terry scores. Let \(\mathcal{M}\) denote the set of evaluated models. For every judged pair \((m_a,m_b)\), the evaluator records a binary win for one side. The pipeline then estimates Bradley-Terry strengths and reports their logarithms as \texttt{bt\_score} values.
 
-This aggregation is a sensible choice for humor because relative judgments are often more stable than absolute scores. Asking a judge to decide which of two jokes is funnier is usually easier than asking for a well-calibrated numerical rating. At the same time, this procedure inherits the limitations of the judge model. Since humor judgments by language models can diverge from human judgments, the current leaderboard should be interpreted as an efficient automatic proxy rather than as a definitive measure of humorous quality.
+This aggregation is a sensible choice for humor because relative judgments are often more stable than absolute scores. Asking a judge to decide which of two jokes is funnier is usually easier than asking for a well-calibrated numerical rating. At the same time, this procedure inherits the limitations of the judge model. Since humor judgments by language models can diverge from human judgments, the current leaderboard should be interpreted as a fast and cheap proxy used for intermediate validation rather than as a definitive measure of humor quality.
 
 \section{Theoretical framework for MRVF training}
 
-The implemented pipeline above motivates the theoretical part of the methodology. It constructs the observed multi-reference sets needed by verifier-free reinforcement learning, even though the optimization stage has not yet been coded.
+The implemented pipeline above motivates the theoretical part of the methodology. It constructs the observed multi-reference sets required by verifier-free reinforcement learning, while the sections below expand on the theory behind the proposed training procedure.
 
 \subsection{Notation}
 
@@ -145,14 +142,20 @@ Let
     \item \(y^{*}\) denote a single reference answer,
     \item \(Y^{*}(x)\subset\mathcal{Y}\) denote the observed set of acceptable references for prompt \(x\).
 \end{itemize}
+
+% TODO: Add policy to the notation, it may be not clear it is the probability model
+
 The policy is factorized as
 \[
     \pi_{\theta}(z,y\mid x)=\pi_{\theta}(z\mid x)\,\pi_{\theta}(y\mid x,z).
 \]
-This factorization is conceptually useful even if the underlying model emits a single token sequence, because it separates the reasoning process from the final answer event that receives reward.
+This factorization is conceptually useful because it separates the reasoning process from the final answer event that receives reward.
 
 \subsection{RL with verifiable rewards}
 
+% TODO: This section is good at math, but for an outside reader there is too little text and explanations, add them. And i think a little section on rl basic - what is reward, objective and how gradient is used for updates may be beneficial
+
+% TODO: Give an example of a verifier - for code it is tests, for math it is a definitive answer, which are deterministically matched with the generation, this is what = signifies here really
 In the standard single-reference, verifiable setting, reward is given by
 \[
     R(y,y^{*})=\mathbb{I}\{y=y^{*}\}.
@@ -164,6 +167,8 @@ The objective is
     \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
     \mathbb{E}_{y\sim\pi_{\theta}(y\mid x,z)}[R(y,y^{*})].
 \]
+
+% TODO: This step may not be clear, what is this identity? this inference should be explanatory
 Using the score-function identity,
 \[
     \nabla_{\theta}\,\mathbb{E}_{u\sim p_{\theta}(u)}[f(u)]
@@ -184,14 +189,20 @@ we obtain
         \Big].
 \]
 
+% TODO: Expand on its interpretation, what are the terms, how they work
+
 \subsection{VeriFree}
 
+% TODO: Add a refresher on the research context, how this is an aid for non-verifiable domains, why external verifier may not exist
 When an external verifier is unavailable but a single reference answer \(y^{*}\) exists, the expectation over the indicator can be rewritten as
 \[
     \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}[\mathbb{I}\{y=y^{*}\}]
     =
     \pi_{\theta}(y^{*}\mid x,z).
 \]
+
+% TODO: Here are some expectation inference step omitted, add them back to make it clear how the expectation makes identity a probability. Overall, try to be a little more literal, do not omit important steps for too much brevity
+
 This yields the verifier-free objective
 \[
     J_{\mathrm{VF}}(\theta\mid x,y^{*})
@@ -216,9 +227,13 @@ Differentiating gives
         \Big].
 \]
 
+% TODO: Again, expand on its interpretation, what are the terms, how they work. Add the info from the paper, talk a bit about estimator qualitites, gradients.
+
 \subsection{Multi-reference VeriFree}
 
-Humor violates the single-reference assumption. A weak prompt such as ``write a joke using the keywords prophet, atheism'' admits many plausible completions. The implemented repository makes this explicit by constructing multiple retrieved references for the same prompt. Accordingly, reward should be defined at the level of a reference set:
+% TODO: This section is too short, you have significantly cut the original mathematical inference and explanations, please return them and enhance explanations, do not make it too simplistic. 
+
+Humor violates the single-reference assumption. A weak prompt such as ``write a joke using the keywords cat, dog'' admits many plausible completions. The implemented repository makes this explicit by constructing multiple retrieved references for the same prompt. Accordingly, reward should be defined at the level of a reference set:
 \[
     R(y,Y^{*})=\mathbb{I}\{y\in Y^{*}\}.
 \]
@@ -246,16 +261,20 @@ and obtain
 \]
 This objective is the theoretical counterpart of the implemented reference-retrieval pipeline: the code constructs observed multi-reference sets, and MRVF defines how those sets would be used for optimization.
 
+% TODO: Gradient derivation and interpretation is missing here, it is not equivalent to verifree, so it needs to be addressed.
+
 \subsection{Incomplete observed references}
 
-In the present setting, \(Y^{*}(x)\) is not an exhaustive gold set. It is a retrieved subset of jokes judged similar to the prompt in embedding space. Therefore, incompleteness is built into the methodology from the outset. Suppose an observed subset \(Y\subset Y^{*}\) is used in practice. Then
+In the present setting, \(Y^{*}(x)\) is not an exhaustive ground truth. It is a retrieved subset of jokes judged similar to the prompt in embedding space. Therefore, incompleteness is built into the methodology from the outset. Suppose an observed subset \(Y\subset Y^{*}\) is used in practice. Then
 \[
     r_{\theta}(x,z,Y)=\sum_{y\in Y}\pi_{\theta}(y\mid x,z).
 \]
-If each member of \(Y^{*}\) is included with probability \(\rho\), then
+If each member of \(Y^{*}\) is included with a uniform probability \(\rho\), then
 \[
     \mathbb{E}_{Y}[r_{\theta}(x,z,Y)] = \rho\,r_{\theta}(x,z,Y^{*}).
 \]
+
+% TODO: Talk about the solution to scale shift - GRPO is scale-invariant
 Thus the observed reward is proportional in expectation to the full-set reward. This preserves the objective up to scale, but it does not remove the false-negative problem: probability mass shifted toward observed references must come from somewhere, and that somewhere includes both bad jokes and unseen good jokes.
 
 To reduce this risk, the proposed optimization includes a KL penalty relative to a reference policy:
@@ -269,7 +288,9 @@ The purpose of this term is not merely regularization in the abstract. In a crea
 
 \subsection{Proposed training loop}
 
-Although \texttt{training.py} is currently empty, the intended update rule can be specified. For a prompt \(x\), sample a group of reasoning traces
+% TODO: The is almost no discussion of grpo / rloo / etc, it is not clear where it comes from. be more specific
+
+For a prompt \(x\), sample a group of reasoning traces
 \[
     z_1,\dots,z_G \sim \pi_{\theta}(z\mid x),
 \]
@@ -294,13 +315,13 @@ which can equivalently be written in log-derivative form wherever \(r_{\theta}(x
     \nabla_{\theta}J_{\mathrm{MRVF}} \approx g_z + g_r + g_{\mathrm{KL}}.
 \]
 
-The practical importance of the implemented data pipeline is now clear. Without constructing prompt-conditioned multi-reference sets, the reward \(r_{\theta}(x,z,Y^{*}(x))\) cannot be estimated. The software pipeline is therefore not auxiliary to the theory. It is the operational precondition for it.
+The practical importance of the implemented data pipeline is now clear. Without constructing prompt-conditioned multi-reference sets, the reward \(r_{\theta}(x,z,Y^{*}(x))\) cannot be estimated. The software pipeline is therefore not auxiliary but operational to the theory.
 
 \section{Evaluation protocol for the preliminary thesis}
 
 The present repository supports one implemented benchmark and one broader planned benchmark.
 
-The implemented benchmark is automatic pairwise comparison of generated jokes across models, followed by Bradley--Terry aggregation. This is the method that can be honestly reported as operational at the current stage.
+The implemented benchmark is automatic pairwise comparison of generated jokes across models, followed by Bradley-Terry aggregation. This is the method that can be honestly reported as operational at the current stage.
 
 The planned benchmark extends evaluation along multiple axes motivated by recent humor-evaluation work: prompt adherence, novelty, human-likeness, and funniness. These dimensions should ideally be assessed with calibrated rubrics and with a combination of human annotation and LLM-based evaluation. That extension is consistent with the literature review and with the theoretical goals of the project, but it is not yet implemented in the checked-in code.
 

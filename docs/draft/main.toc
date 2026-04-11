@@ -10,16 +10,16 @@
 \contentsline {section}{\numberline {1.7}Research gap}{13}{section.1.7}%
 \contentsline {chapter}{\numberline {2}Methodology}{14}{chapter.2}%
 \contentsline {section}{\numberline {2.1}Research scope and implementation status}{14}{section.2.1}%
-\contentsline {section}{\numberline {2.2}Corpus construction}{14}{section.2.2}%
-\contentsline {section}{\numberline {2.3}Dense embedding generation}{15}{section.2.3}%
-\contentsline {section}{\numberline {2.4}Keyword extraction as weak prompt approximation}{16}{section.2.4}%
+\contentsline {section}{\numberline {2.2}Dataset construction}{14}{section.2.2}%
+\contentsline {section}{\numberline {2.3}Dense embedding index}{15}{section.2.3}%
+\contentsline {section}{\numberline {2.4}Keyword extraction as weak prompt retrieval}{16}{section.2.4}%
 \contentsline {section}{\numberline {2.5}Reference construction by keyword grouping and retrieval}{17}{section.2.5}%
 \contentsline {subsection}{\numberline {2.5.1}Keyword grouping and prompt rendering}{17}{subsection.2.5.1}%
-\contentsline {subsection}{\numberline {2.5.2}Embedding-based reference retrieval}{17}{subsection.2.5.2}%
-\contentsline {subsection}{\numberline {2.5.3}Deduplication and split construction}{19}{subsection.2.5.3}%
-\contentsline {section}{\numberline {2.6}Candidate generation pipeline}{19}{section.2.6}%
-\contentsline {section}{\numberline {2.7}Implemented automatic evaluation}{20}{section.2.7}%
-\contentsline {subsection}{\numberline {2.7.1}Pairwise comparison setup}{20}{subsection.2.7.1}%
+\contentsline {subsection}{\numberline {2.5.2}Reference retrieval with embedding index}{17}{subsection.2.5.2}%
+\contentsline {subsection}{\numberline {2.5.3}Deduplication and splitting}{18}{subsection.2.5.3}%
+\contentsline {section}{\numberline {2.6}Candidate generation}{19}{section.2.6}%
+\contentsline {section}{\numberline {2.7}Candidate evaluation}{20}{section.2.7}%
+\contentsline {subsection}{\numberline {2.7.1}Pairwise comparison}{20}{subsection.2.7.1}%
 \contentsline {subsection}{\numberline {2.7.2}Leaderboard aggregation}{20}{subsection.2.7.2}%
 \contentsline {section}{\numberline {2.8}Theoretical framework for MRVF training}{21}{section.2.8}%
 \contentsline {subsection}{\numberline {2.8.1}Notation}{21}{subsection.2.8.1}%
