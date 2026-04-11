@@ -6,16 +6,9 @@ At a high level, the implemented system constructs a weakly supervised multi-ref
 
 \section{Dataset construction}
 
-% TODO: Add dataset sizes here
-The empirical basis is a merged corpus built from two public joke collections: the Short Jokes dataset and the rJokes dataset. In the repository, this stage is implemented in \texttt{src/pipelines/jokes.py}. The pipeline downloads the raw files from pinned source revisions, converts them into parquet format, and preserves source metadata for each joke. For every row, the stored fields are \texttt{id}, \texttt{text}, \texttt{source\_name}, \texttt{source\_filename}, and \texttt{source\_id}. After preprocessing the two corpora separately, they are concatenated and assigned a new global integer identifier.
+Dataset is merged from two public joke collections: the Short Jokes dataset and the rJokes dataset. In the repository, this stage is implemented in \texttt{src/pipelines/jokes.py}. The pipeline downloads the raw files from pinned source revisions, converts them into parquet format, and preserves source metadata for each joke. For every row, the stored fields are \texttt{id}, \texttt{text}, \texttt{source\_name}, \texttt{source\_filename}, and \texttt{source\_id}. After preprocessing the two corpora separately, they are concatenated and assigned a new global integer identifier. The final dataset consists of approximately \(664\,\text{k}\) items
 
 This design is intentionally conservative. The pipeline does not perform aggressive text normalization beyond removing empty entries and standardizing storage format. For humor, such caution is desirable, because seemingly minor textual details, such as punctuation, wording, or line breaks may contribute to comedic effect. Retaining source metadata is also useful for later analysis of domain differences, duplicate detection, and possible source-specific biases.
-
-Formally, let the merged corpus be denoted
-\[
-    \mathcal{J}=\{(i, y_i, s_i)\}_{i=1}^{N},
-\]
-where \(y_i\) is the joke text, \(i\) is a global identifier, and \(s_i\) collects source metadata. This corpus is the common starting point for all later stages.
 
 \section{Dense embedding index}
 
@@ -86,6 +79,8 @@ The search procedure retrieves more than \(k\) candidates, filters out those who
 \[
     Y^{*}(x)=\{y_1,\dots,y_n\}, \qquad n \le 5.
 \]
+
+Note that in practice reference retrieval produces around \(4\) references per keyword group after deduplication and splitting. The target sample size for training is \(10-20\text{k}\) references, hence generating \(3-5\text{k}\) keyword groups is enough.
 
 This stage implements the central point of the thesis: a prompt associated with multiple candidate joke references rather than with a single ground truth. Importantly, the retrieved set is not an exhaustively annotated set of all good jokes for \(x\). It is a retrieved approximation of that set. This matters both empirically and theoretically. Empirically, retrieved references may contain noise or omit valid alternatives. Theoretically, the incompleteness of \(Y^{*}(x)\) becomes a core part of the later MRVF analysis rather than a secondary inconvenience.
 

@@ -1,171 +1,36 @@
-\section{Overview of the implemented pilot}
+\section{Current results}
 
-The main result of the current project stage is not a trained humor model. It is a working pilot pipeline that operationalizes the thesis idea at the data and evaluation levels. This result is more substantial than it may initially appear. In a non-verifiable domain, data construction is not a trivial preprocessing step; it is part of the method itself. If the data representation is wrong, the reinforcement-learning objective will optimize the wrong behavior.
+The implemented pipeline already supports corpus collection, embedding generation, keyword extraction, prompt construction, reference retrieval, candidate generation, and pairwise automatic evaluation. The remaining missing stage is the actual reinforcement-learning update loop. For that reason, this section is narrow: it reports the completed data artifacts and states the concrete experimental setting for the first MRVF training runs.
 
-The implemented pilot already demonstrates five important facts:
-\begin{enumerate}
-  \item large-scale joke aggregation is feasible and already completed;
-  \item embedding-based retrieval can be used to build sets of references for weak prompts;
-  \item prompt construction can be approximated through keyword extraction;
-  \item pairwise generation and evaluation infrastructure is available for future model benchmarking;
-  \item the resulting artifacts expose concrete limitations that can guide the next implementation stage.
+The corpus-level result is a merged joke collection of approximately \(664\text{k}\) items. In the final training setup, this full corpus serves as the retrieval pool: all jokes are embedded and indexed, and references for weak prompts are retrieved from this full embedding space. Keyword extraction, however, only needs to be applied to a sufficiently large subset to hit the target sample size. In our case, \(3-5\text{k}\) keyword groups can produce \(10-20\text{k}\) references for training, validation and testing.
+
+This is all for the preliminary stage. The important result is that the data and the experimental setting are now finalized: the corpus exists, the reference collection is implemented, the methodology is finalized, and the remaining work is confined to the MRVF training loop.
+
+\section{Planned training procedure}
+
+The repository already implements the full data pipeline in Python using Hugging Face Datasets, parquet artifacts, FAISS-based nearest-neighbor search, and OpenAI-compatible API calls for embedding generation, candidate generation, and automatic evaluation. For the actual training runs, however, the software stack will change slightly.
+
+The planned implementation will use a patched version of \texttt{trl} for optimization and \texttt{vLLM} for generation. \texttt{trl} provides the trainer-side logic for policy optimization, while \texttt{vLLM} will be used both to generate the baseline outputs and to serve rollouts during reinforcement learning. Since MRVF depends on sampling multiple reasoning traces per prompt, rollout throughput matters for efficiency.
+
+The target models are from the Qwen3 family in the \(1.7\text{B}\) and \(4\text{B}\) size range. For each size, the planned baselines are:
+\begin{enumerate}[leftmargin=1.8em]
+    \item \textbf{Qwen3 Instruct}, baseline in non-thinking mode;
+    \item \textbf{Qwen3 Thinking}, baseline in thinking mode;
+    \item \textbf{MRVF-trained Qwen3 Thinking}, proposed model;
 \end{enumerate}
 
-For a preliminary thesis, this is an acceptable and useful stopping point. It provides enough implemented material for a methodology chapter and enough empirical artifacts for a first results chapter, while still leaving room for a final thesis to deliver the actual reinforcement-learning experiments.
+This setup keeps the comparison interpretable. It isolates three distinct questions: whether ordinary instruction tuning is enough for humor generation, whether native thinking mode already improves humor generation without additional training, and whether MRVF can further improve the thinking model.
 
-\section{Pilot dataset statistics}
+All training runs are planned for 1-2 \texttt{NVIDIA H200} GPUs on the HSE HPC cluster. This is sufficient for the intended model sizes and allows for parallelization accross instances.
 
-Table~\ref{tab:pilotstats} summarizes the key counts extracted from the local repository state. These numbers are especially important because they show the difference between the total available corpus, the current embedded retrieval pool, the seed set used for keyword extraction, and the final deduplicated prompt-reference dataset.
+The comparison will use the evaluation pipeline that is already implemented in the repository. Outputs are paired for the same prompt, the left/right order is randomized, the judge is forced to choose exactly one winner, and model scores are aggregated with a Bradley-Terry leaderboard. This is sufficient for the experiment because the goal is to detect whether MRVF produces a measurable shift relative to the instruct and thinking baselines. A larger multidimensional evaluation with rubric-based scoring and human annotation is planned after training is completed. The immediate objective is narrower: to test whether the proposed procedure can improve pairwise humor preference under a controlled prompt set.
 
-\begin{table}[ht]
-  \centering
-  \caption{Pilot data-construction statistics}
-  \label{tab:pilotstats}
-  \begin{tabular}{p{0.58\textwidth}r}
-    \toprule
-    Artifact                                             & Count     \\
-    \midrule
-    Raw merged joke corpus                               & 664{,}048 \\
-    Embedded jokes in current local pilot                & 10{,}005  \\
-    Keyword-annotated jokes in current pilot             & 1{,}005   \\
-    Generated prompt-reference rows before deduplication & 5{,}958   \\
-    Unique prompt-reference rows after deduplication     & 5{,}058   \\
-    Training prompts                                     & 4{,}046   \\
-    Validation prompts                                   & 506       \\
-    Test prompts                                         & 506       \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+\section{Planned ablations}
 
-Several observations follow directly from these numbers.
-
-First, the pipeline expands a relatively small seed subset into a much larger prompt-level dataset. From 1{,}005 keyword-annotated jokes, it produces 5{,}958 candidate prompt rows. This expansion is expected because each joke contributes multiple one-keyword and two-keyword combinations.
-
-Second, deduplication removes 900 duplicate prompt rows. This is a useful sign rather than a problem. It indicates that different jokes frequently converge to the same weak prompt, which is exactly the condition needed for multi-reference learning.
-
-Third, the size difference between the embedded retrieval pool (10{,}005 jokes) and the keyword seed set (1{,}005 jokes) reveals the current pilot strategy: a smaller set of seed jokes is used to generate prompts, but references are retrieved from a larger pool. This is methodologically sensible because it maximizes reference diversity without requiring the full prompt-construction pipeline to run over the entire corpus.
-
-\section{Reference-set quality}
-
-The most important question for the current thesis is whether the retrieved reference sets are large and coherent enough to justify a multi-reference objective. Table~\ref{tab:refstats} reports descriptive statistics derived from the local prompt-reference artifacts.
-
-\begin{table}[ht]
-  \centering
-  \caption{Descriptive statistics of deduplicated prompt-reference sets}
-  \label{tab:refstats}
-  \begin{tabular}{p{0.58\textwidth}r}
-    \toprule
-    Statistic                              & Value   \\
-    \midrule
-    Average references per prompt          & 4.07    \\
-    Median references per prompt           & 5       \\
-    Maximum references per prompt          & 5       \\
-    Prompts with zero retrieved references & 204     \\
-    Prompts with exactly one reference     & 398     \\
-    Prompts with five references           & 3{,}450 \\
-    Prompts built from one keyword         & 2{,}117 \\
-    Prompts built from two keywords        & 2{,}941 \\
-    Average keyword-group size             & 1.58    \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-These results are encouraging. The median prompt already reaches the configured reference cap of five items, and 3{,}450 out of 5{,}058 prompts are saturated at that limit. This indicates that the retrieval mechanism is not merely finding occasional neighbors; for a large fraction of prompts it constructs a dense local neighborhood of jokes that are semantically related enough to pass the similarity threshold.
-
-At the same time, the long  decide how to incorporate sparse cases.
-
-The relative abundance of two-keyword prompts is also informative. In the deduplicated dataset, 2{,}941 prompts are built from two keywords and 2{,}117 from one keyword. This suggests that the current parameter choice (\texttt{min\_keywords}=1, \texttt{max\_keywords}=2) yields a balanced mixture of broad and moderately constrained prompts. The one-keyword prompts increase diversity; the two-keyword prompts increase specificity.
-
-\section{Qualitative examples}
-
-Quantitative counts alone do not show whether the constructed prompts are semantically meaningful. For that reason, qualitative inspection of pilot rows is necessary. Table~\ref{tab:examples} provides representative examples drawn from the current training split.
-
-\begin{longtable}{p{0.22\textwidth}p{0.18\textwidth}p{0.48\textwidth}}
-  \caption{Examples of prompt-reference sets from the pilot dataset}
-  \labeltail is visible. There are 204 prompts with zero retained references and 398 with only one reference. This matters for the later training stage because MRVF becomes weak or unstable when the prompt has no meaningful reference set. The current pilot therefore suggests a natural filtering or curriculum strategy: future training should probably begin with prompts that have at least two or three references and only later{tab:examples} \\
-  \toprule
-  Keyword group               & Number of references & Illustrative reference behavior                                                                                                                                                                                                                                                                                                                                                                     \\
-  \midrule
-  \endfirsthead
-  \toprule
-  Keyword group               & Number of references & Illustrative reference behavior                                                                                                                                                                                                                                                                                                                                                                     \\
-  \midrule
-  \endhead
-  \bottomrule
-  \endfoot
-  \texttt{[alphabet, does]}   & 5                    & References cluster around alphabet-based wordplay, including pirate-letter jokes and orthographic misunderstandings. The prompt is weak, yet the reference set still shares a recognizably playful mechanism.                                                                                                                                                                                       \\
-  \texttt{[typo, ate]}        & 5                    & The references include jokes about autocorrect, eating, and lexical distortion. This is a good example of a prompt that is broad enough to admit multiple answers but still constrained by a recoverable comic theme.                                                                                                                                                                               \\
-  \texttt{[ears]}             & 5                    & The retrieved references revolve around hearing or cornfield homophones. This shows that even a one-keyword prompt can generate a coherent neighborhood when the word carries a strong pun affordance.                                                                                                                                                                                              \\
-  \texttt{[cider, favourite]} & 2                    & The prompt retrieves a much narrower set. This reveals the risk of under-supported prompts: they may be too idiosyncratic for robust training even if they remain semantically meaningful.                                                                                                                                                                                                          \\
-  \texttt{[girl, lazy]}       & 1                    & The prompt effectively collapses to a near-singleton neighborhood. Such rows are useful for evaluation but weak for multi-reference reinforcement learning.                                                                                                                                                                                                                                         \\
-\end{longtable}
-
-These examples support three conclusions.
-
-First, the retrieval mechanism often preserves a plausible humor mechanism even though it is not explicitly told to search for mechanisms. This is a positive sign for the embedding-based approach.
-
-Second, one-keyword prompts can still be useful when the keyword is semantically rich or strongly associated with punning. This means that prompt broadness is not automatically a weakness.
-
-Third, sparsity remains a real issue. Some prompts are clearly under-supported, which means that future training cannot simply treat every prompt row as equally informative.
-
-\section{Interpretation of the pilot as a multi-reference dataset}
-
-The pilot results support the central methodological claim of the thesis: a joke corpus can indeed be restructured from isolated samples into weak prompts paired with multiple references. This is not merely a convenience for evaluation. It changes the shape of the learning problem.
-
-In a standard SFT dataset, the model sees \((x,y^{*})\) pairs and is asked to imitate the observed answer. In the pilot dataset produced here, the learning problem begins to look like \((x,Y^{*}(x))\), where the goal is not to reproduce one answer exactly, but to shift probability mass toward a set of acceptable answers. That is precisely the structure required by the MRVF objective.
-
-The descriptive statistics also make the conceptual advantages of multi-reference modeling concrete. If the majority of prompts already have several references in a small pilot, then a larger-scale run over the full corpus has a reasonable chance of yielding a much richer multi-reference dataset. The pilot therefore functions as an existence proof for the data representation.
-
-\section{Limitations revealed by the current implementation}
-
-The pilot also reveals several limitations that must be acknowledged explicitly.
-
-\subsection{Prompt quality is approximate}
-
-The current system does not yet perform full prompt inversion from jokes. It uses keywords as a proxy. This is computationally efficient and easy to audit, but it inevitably loses structure. A keyword prompt such as \prompt{Write a joke using the following keyword(s): ears} can recover the topic of a joke, but not necessarily its framing, rhetorical setup, or intended comedic mechanism.
-
-This limitation does not invalidate the pilot. It means that the current prompt representation should be interpreted as a \emph{weak constraint}, not a rich semantic specification. That interpretation is consistent with the thesis goal: the training task should preserve multiplicity of valid outputs. Weak prompts may even be preferable for that reason, provided they remain coherent enough for retrieval.
-
-\subsection{Coverage is still partial}
-
-Only a subset of the total corpus has been embedded, and an even smaller subset has been used for keyword extraction in the current local run. Therefore, the reported numbers are pilot indicators, not final corpus-scale statistics. A final thesis should rerun the pipeline on a much larger portion of the corpus before drawing strong conclusions about reference coverage.
-
-\subsection{Reference incompleteness remains unresolved}
-
-Even when the system finds five references, that does not mean the true answer set has been observed fully. Five is only the configured retrieval cap. The present pilot therefore confirms the relevance of the incompleteness problem discussed in the methodology chapter. The retrieved set is useful, but it should still be interpreted as a partial observation of a larger latent set of good jokes.
-
-\subsection{No committed benchmark outputs yet}
-
-The repository contains implemented candidate-generation and evaluation modules, but the current committed data artifacts do not yet include candidate generations or pairwise evaluation results. This means the present thesis can defend the benchmark design, but not yet report final model rankings. That limitation is acceptable in a preliminary thesis, provided it is stated clearly.
-
-\subsection{Training remains future work}
-
-The most important limitation is also the most obvious one: the actual reinforcement-learning stage has not yet been implemented. The theoretical objective is specified, and the data pipeline now justifies it, but a final thesis must still test whether MRVF training improves humor generation relative to base, instruct, and reasoning checkpoints.
-
-\section{What the pilot already contributes}
-
-Despite those limitations, the current work already contributes something non-trivial.
-
-First, it replaces a purely conceptual report with a thesis-grade research narrative grounded in actual code and actual data artifacts. The methodology is no longer hypothetical in the abstract; major components are implemented and inspectable.
-
-Second, it demonstrates that the move from single-reference humor supervision to multi-reference supervision is practically achievable. This is arguably the main precondition for the later training study.
-
-Third, it clarifies the software architecture needed for the final stage. The project now has separate modules for corpus ingestion, representation learning, prompt construction, retrieval, generation, and evaluation. This modularity reduces the risk that future negative results will be uninterpretable because all components were entangled.
-
-Fourth, it identifies the exact frontier between what has already been validated and what still requires experimentation. That clarity is itself valuable in a thesis context. It prevents overclaiming and allows the final version of the thesis to focus its experimental effort where uncertainty is highest.
-
-\section{Next stage of the study}
-
-Based on the current pilot, the next stage of the project should proceed in the following order.
-
-First, the prompt-construction pipeline should be rerun at a larger scale so that the distribution of reference counts becomes more stable. A final thesis should not rely on only 1{,}005 keyword-seeded jokes if the full corpus is available.
-
-Second, sparse prompts should be filtered or stratified. Prompts with zero or one retrieved reference are useful diagnostic cases, but they are poor anchors for multi-reference reward estimation.
-
-Third, the \texttt{training.py} module should implement the MRVF update with careful variance control and KL regularization.
-
-Fourth, model comparisons should be run over at least four checkpoint families: base, instruction-tuned, reasoning-tuned, and MRVF-trained variants. This matches the experimental sketch of the original report but relocates it to the correct stage of the project.
-
-Fifth, automatic pairwise evaluation should be complemented with a smaller but carefully designed human annotation study. The literature strongly suggests that humor cannot be left entirely to model judges \citep{Sakabe2025,Zhang2024HumorAI}.
-
-In short, the pilot has done the preparatory work needed to make a final reinforcement-learning experiment worthwhile. It has not yet replaced that experiment.
+The ablation plan is directly connected to the theory. The most informative ablations are the following:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Number of observed references per prompt \(|Y^{*}|\).} Compare smaller and larger reference sets, for example by truncating retrieval to \(1\), \(3\), or \(5\) items.
+    \item \textbf{KL coefficient \(\beta\).} Test how strongly the model must be anchored to the initialization checkpoint in order to fix incompleteness.
+    \item \textbf{Group size \(G\).} Vary the number of sampled reasoning traces per prompt in order to assess the variance / throughput trade-off of the MRVF estimator.
+    \item \textbf{Model size.} Compare \(1.7\text{B}\) versus \(4\text{B}\), and check whether MRVF is robust when applied to smaller models.
+\end{itemize}
