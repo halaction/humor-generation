@@ -75,53 +75,6 @@
 
 \appendix
 
-\chapter{Implemented Prompt Templates}
-
-This appendix records the main templates already implemented in the repository. They are included here because they define the operational form of the prompts used throughout the pilot.
-
-\section{Reference-generation prompt}
-
-The prompt used for reference retrieval and candidate generation is:
-\begin{quote}
-  \ttfamily
-  Write a joke using the following keyword(s): \{keywords\}
-\end{quote}
-
-Its main advantage is consistency. The same textual form is used for retrieval-time prompt embedding and for later candidate generation, which reduces mismatch between dataset construction and evaluation. Its main disadvantage is that it is intentionally generic and therefore does not encode humor theory or audience information.
-
-\section{Embedding query instructions}
-
-Two short instruction templates are used to adapt the embedding model to retrieval subtasks:
-\begin{quote}
-  \ttfamily
-  Instruct: Given a keyword for a joke, retrieve jokes would match the keyword.\\
-  Query: \{keyword\}
-\end{quote}
-
-\begin{quote}
-  \ttfamily
-  Instruct: Given a prompt for a joke, retrieve jokes that would answer the prompt.\\
-  Query: \{prompt\}
-\end{quote}
-
-These templates are important because the pilot does not use raw keyword strings as embeddings directly. It embeds them inside retrieval-oriented instructions, which makes the semantic intent of the vector space more task-specific.
-
-\section{Evaluation prompt}
-
-The pairwise evaluation system prompt asks the judge to compare two jokes written for the same prompt and choose exactly one winner. The instruction explicitly discourages rewarding length or polish when these do not improve humor. This design is intentionally simple and should be viewed as a baseline evaluation protocol rather than a final human-aligned rubric.
-
-\chapter{Supplementary Notes on the Software Architecture}
-
-The repository is organized as a set of asynchronous pipelines:
-\begin{itemize}
-  \item \texttt{JokesPipeline}: downloads and preprocesses raw corpora;
-  \item \texttt{EmbeddingsPipeline}: computes dense joke embeddings;
-  \item \texttt{KeywordsPipeline}: extracts salient keywords by similarity and MMR;
-  \item \texttt{ReferencesPipeline}: builds prompt-reference datasets through vector retrieval;
-  \item \texttt{CandidatesPipeline}: generates jokes from prompts;
-  \item \texttt{EvaluationPipeline}: performs pairwise judging and leaderboard aggregation.
-\end{itemize}
-
-This architecture matters for the final thesis because it separates data construction from model comparison. As a result, the later MRVF training stage can be added without rewriting the rest of the infrastructure. The missing component is precisely the one that now becomes the main target of future work: a training pipeline that consumes the constructed prompt-reference dataset and optimizes the formal objective introduced in Chapter 2.
+\input{chapters/appendix}
 
 \end{document}

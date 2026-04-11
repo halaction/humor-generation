@@ -4,11 +4,11 @@ The main result of the current project stage is not a trained humor model. It is
 
 The implemented pilot already demonstrates five important facts:
 \begin{enumerate}
-    \item large-scale joke aggregation is feasible and already completed;
-    \item embedding-based retrieval can be used to build sets of references for weak prompts;
-    \item prompt construction can be approximated through keyword extraction;
-    \item pairwise generation and evaluation infrastructure is available for future model benchmarking;
-    \item the resulting artifacts expose concrete limitations that can guide the next implementation stage.
+  \item large-scale joke aggregation is feasible and already completed;
+  \item embedding-based retrieval can be used to build sets of references for weak prompts;
+  \item prompt construction can be approximated through keyword extraction;
+  \item pairwise generation and evaluation infrastructure is available for future model benchmarking;
+  \item the resulting artifacts expose concrete limitations that can guide the next implementation stage.
 \end{enumerate}
 
 For a preliminary thesis, this is an acceptable and useful stopping point. It provides enough implemented material for a methodology chapter and enough empirical artifacts for a first results chapter, while still leaving room for a final thesis to deliver the actual reinforcement-learning experiments.
@@ -18,23 +18,23 @@ For a preliminary thesis, this is an acceptable and useful stopping point. It pr
 Table~\ref{tab:pilotstats} summarizes the key counts extracted from the local repository state. These numbers are especially important because they show the difference between the total available corpus, the current embedded retrieval pool, the seed set used for keyword extraction, and the final deduplicated prompt-reference dataset.
 
 \begin{table}[ht]
-    \centering
-    \caption{Pilot data-construction statistics}
-    \label{tab:pilotstats}
-    \begin{tabular}{p{0.58\textwidth}r}
-        \toprule
-        Artifact                                             & Count     \\
-        \midrule
-        Raw merged joke corpus                               & 664{,}048 \\
-        Embedded jokes in current local pilot                & 10{,}005  \\
-        Keyword-annotated jokes in current pilot             & 1{,}005   \\
-        Generated prompt-reference rows before deduplication & 5{,}958   \\
-        Unique prompt-reference rows after deduplication     & 5{,}058   \\
-        Training prompts                                     & 4{,}046   \\
-        Validation prompts                                   & 506       \\
-        Test prompts                                         & 506       \\
-        \bottomrule
-    \end{tabular}
+  \centering
+  \caption{Pilot data-construction statistics}
+  \label{tab:pilotstats}
+  \begin{tabular}{p{0.58\textwidth}r}
+    \toprule
+    Artifact                                             & Count     \\
+    \midrule
+    Raw merged joke corpus                               & 664{,}048 \\
+    Embedded jokes in current local pilot                & 10{,}005  \\
+    Keyword-annotated jokes in current pilot             & 1{,}005   \\
+    Generated prompt-reference rows before deduplication & 5{,}958   \\
+    Unique prompt-reference rows after deduplication     & 5{,}058   \\
+    Training prompts                                     & 4{,}046   \\
+    Validation prompts                                   & 506       \\
+    Test prompts                                         & 506       \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 Several observations follow directly from these numbers.
@@ -50,29 +50,29 @@ Third, the size difference between the embedded retrieval pool (10{,}005 jokes) 
 The most important question for the current thesis is whether the retrieved reference sets are large and coherent enough to justify a multi-reference objective. Table~\ref{tab:refstats} reports descriptive statistics derived from the local prompt-reference artifacts.
 
 \begin{table}[ht]
-    \centering
-    \caption{Descriptive statistics of deduplicated prompt-reference sets}
-    \label{tab:refstats}
-    \begin{tabular}{p{0.58\textwidth}r}
-        \toprule
-        Statistic                              & Value   \\
-        \midrule
-        Average references per prompt          & 4.07    \\
-        Median references per prompt           & 5       \\
-        Maximum references per prompt          & 5       \\
-        Prompts with zero retrieved references & 204     \\
-        Prompts with exactly one reference     & 398     \\
-        Prompts with five references           & 3{,}450 \\
-        Prompts built from one keyword         & 2{,}117 \\
-        Prompts built from two keywords        & 2{,}941 \\
-        Average keyword-group size             & 1.58    \\
-        \bottomrule
-    \end{tabular}
+  \centering
+  \caption{Descriptive statistics of deduplicated prompt-reference sets}
+  \label{tab:refstats}
+  \begin{tabular}{p{0.58\textwidth}r}
+    \toprule
+    Statistic                              & Value   \\
+    \midrule
+    Average references per prompt          & 4.07    \\
+    Median references per prompt           & 5       \\
+    Maximum references per prompt          & 5       \\
+    Prompts with zero retrieved references & 204     \\
+    Prompts with exactly one reference     & 398     \\
+    Prompts with five references           & 3{,}450 \\
+    Prompts built from one keyword         & 2{,}117 \\
+    Prompts built from two keywords        & 2{,}941 \\
+    Average keyword-group size             & 1.58    \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
 These results are encouraging. The median prompt already reaches the configured reference cap of five items, and 3{,}450 out of 5{,}058 prompts are saturated at that limit. This indicates that the retrieval mechanism is not merely finding occasional neighbors; for a large fraction of prompts it constructs a dense local neighborhood of jokes that are semantically related enough to pass the similarity threshold.
 
-At the same time, the long tail is visible. There are 204 prompts with zero retained references and 398 with only one reference. This matters for the later training stage because MRVF becomes weak or unstable when the prompt has no meaningful reference set. The current pilot therefore suggests a natural filtering or curriculum strategy: future training should probably begin with prompts that have at least two or three references and only later decide how to incorporate sparse cases.
+At the same time, the long  decide how to incorporate sparse cases.
 
 The relative abundance of two-keyword prompts is also informative. In the deduplicated dataset, 2{,}941 prompts are built from two keywords and 2{,}117 from one keyword. This suggests that the current parameter choice (\texttt{min\_keywords}=1, \texttt{max\_keywords}=2) yields a balanced mixture of broad and moderately constrained prompts. The one-keyword prompts increase diversity; the two-keyword prompts increase specificity.
 
@@ -81,23 +81,23 @@ The relative abundance of two-keyword prompts is also informative. In the dedupl
 Quantitative counts alone do not show whether the constructed prompts are semantically meaningful. For that reason, qualitative inspection of pilot rows is necessary. Table~\ref{tab:examples} provides representative examples drawn from the current training split.
 
 \begin{longtable}{p{0.22\textwidth}p{0.18\textwidth}p{0.48\textwidth}}
-    \caption{Examples of prompt-reference sets from the pilot dataset}
-    \label{tab:examples}                                                                                                                                                                                                                                                       \\
-    \toprule
-    Keyword group               & Number of references & Illustrative reference behavior                                                                                                                                                                                       \\
-    \midrule
-    \endfirsthead
-    \toprule
-    Keyword group               & Number of references & Illustrative reference behavior                                                                                                                                                                                       \\
-    \midrule
-    \endhead
-    \bottomrule
-    \endfoot
-    \texttt{[alphabet, does]}   & 5                    & References cluster around alphabet-based wordplay, including pirate-letter jokes and orthographic misunderstandings. The prompt is weak, yet the reference set still shares a recognizably playful mechanism.         \\
-    \texttt{[typo, ate]}        & 5                    & The references include jokes about autocorrect, eating, and lexical distortion. This is a good example of a prompt that is broad enough to admit multiple answers but still constrained by a recoverable comic theme. \\
-    \texttt{[ears]}             & 5                    & The retrieved references revolve around hearing or cornfield homophones. This shows that even a one-keyword prompt can generate a coherent neighborhood when the word carries a strong pun affordance.                \\
-    \texttt{[cider, favourite]} & 2                    & The prompt retrieves a much narrower set. This reveals the risk of under-supported prompts: they may be too idiosyncratic for robust training even if they remain semantically meaningful.                            \\
-    \texttt{[girl, lazy]}       & 1                    & The prompt effectively collapses to a near-singleton neighborhood. Such rows are useful for evaluation but weak for multi-reference reinforcement learning.                                                           \\
+  \caption{Examples of prompt-reference sets from the pilot dataset}
+  \labeltail is visible. There are 204 prompts with zero retained references and 398 with only one reference. This matters for the later training stage because MRVF becomes weak or unstable when the prompt has no meaningful reference set. The current pilot therefore suggests a natural filtering or curriculum strategy: future training should probably begin with prompts that have at least two or three references and only later{tab:examples} \\
+  \toprule
+  Keyword group               & Number of references & Illustrative reference behavior                                                                                                                                                                                                                                                                                                                                                                     \\
+  \midrule
+  \endfirsthead
+  \toprule
+  Keyword group               & Number of references & Illustrative reference behavior                                                                                                                                                                                                                                                                                                                                                                     \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+  \texttt{[alphabet, does]}   & 5                    & References cluster around alphabet-based wordplay, including pirate-letter jokes and orthographic misunderstandings. The prompt is weak, yet the reference set still shares a recognizably playful mechanism.                                                                                                                                                                                       \\
+  \texttt{[typo, ate]}        & 5                    & The references include jokes about autocorrect, eating, and lexical distortion. This is a good example of a prompt that is broad enough to admit multiple answers but still constrained by a recoverable comic theme.                                                                                                                                                                               \\
+  \texttt{[ears]}             & 5                    & The retrieved references revolve around hearing or cornfield homophones. This shows that even a one-keyword prompt can generate a coherent neighborhood when the word carries a strong pun affordance.                                                                                                                                                                                              \\
+  \texttt{[cider, favourite]} & 2                    & The prompt retrieves a much narrower set. This reveals the risk of under-supported prompts: they may be too idiosyncratic for robust training even if they remain semantically meaningful.                                                                                                                                                                                                          \\
+  \texttt{[girl, lazy]}       & 1                    & The prompt effectively collapses to a near-singleton neighborhood. Such rows are useful for evaluation but weak for multi-reference reinforcement learning.                                                                                                                                                                                                                                         \\
 \end{longtable}
 
 These examples support three conclusions.
