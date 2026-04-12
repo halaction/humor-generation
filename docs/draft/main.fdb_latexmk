@@ -1,14 +1,14 @@
 # Fdb version 4
-["bibtex main"] 1775917779.90917 "main.aux" "main.bbl" "main" 1775918489.1947 0
+["bibtex main"] 1775957746.62105 "main.aux" "main.bbl" "main" 1775958380.81139 0
   "./references.bib" 1775864601.35297 9370 056b20fdf43cb22a0ff8be6525d9cce2 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/bibtex/bst/natbib/plainnat.bst" 1741388039 26816 ffe5423d2019860bad9f54bc402fac15 ""
-  "main.aux" 1775918489.0588 10002 122fbfafb0aad5d6143bfd8e689329d8 "pdflatex"
+  "main.aux" 1775958380.67938 9245 696612405790bd84ce668d7159fc7374 "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1775918488.65214 "/Users/halaction/Workspace/humor-generation/docs/draft/main.tex" "main.pdf" "main" 1775918489.19481 0
-  "/Users/halaction/Workspace/humor-generation/docs/draft/main.tex" 1775914950.81145 1497 363388bec81b898a5b9469b6c433e932 ""
+["pdflatex"] 1775958380.28728 "/Users/halaction/Workspace/humor-generation/docs/draft/main.tex" "main.pdf" "main" 1775958380.8115 0
+  "/Users/halaction/Workspace/humor-generation/docs/draft/main.tex" 1775957746.46187 1509 34c6a858f41afac5d95c7a9bceb5aba0 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t1.enc" 1741388039 2971 def0b6c1f0b107b3b936def894055589 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc" 1741388039 2900 1537cc8184ad1792082cd229ecc269f4 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/map/fontname/texfonts.map" 1741388039 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -114,17 +114,15 @@
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/tex/latex/url/url.sty" 1741388039 12796 8edb7d69a20b857904dd0ea757c14ec9 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/web2c/texmf.cnf" 1741388039 42151 79f67285bdd95beca4d137b380b4b9e5 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-var/web2c/pdftex/pdflatex.fmt" 1741388039 3346139 1cc6d170340807f4737e090b298f03d2 ""
-  "chapters/appendix.tex" 1775914902.36891 2920 d3e21a4de24f012793a673d8d4f982d0 ""
-  "chapters/conclusion.tex" 1775909348.28907 2347 3cdccbf171a93361cd574bea9c0337c9 ""
-  "chapters/introduction.tex" 1775909355.68913 7493 340ae423fda19fb5c7c0dd86568f8ec0 ""
+  "chapters/introduction.tex" 1775958380.07484 5366 7fde30210adf2aabe0050032d1f93ef7 ""
   "chapters/literature-review.tex" 1775909254.54608 15418 45fe578ac69dc05e4f2e78f7d8020c93 ""
   "chapters/methodology.tex" 1775916533.3045 38163 a17acbc651174d548ddfad61cf9590dd ""
-  "chapters/results.tex" 1775918488.44487 4496 cf61dfe9bc1e500f84bd4e8683a7e0ad ""
-  "main.aux" 1775918489.0588 10002 122fbfafb0aad5d6143bfd8e689329d8 "pdflatex"
-  "main.bbl" 1775917779.9585 9872 268b117ced353d119d548d947aff7450 "bibtex main"
-  "main.out" 1775918489.05978 7838 e31ed1560459e88135ad07805e633afe "pdflatex"
-  "main.tex" 1775914950.81145 1497 363388bec81b898a5b9469b6c433e932 ""
-  "main.toc" 1775918489.05995 3985 a42039a787d00ca18cd32fcf48f03e11 "pdflatex"
+  "chapters/results.tex" 1775957787.56245 4351 21444a6b97fa39aa6f9815f1dd964746 ""
+  "main.aux" 1775958380.67938 9245 696612405790bd84ce668d7159fc7374 "pdflatex"
+  "main.bbl" 1775957746.66233 9872 268b117ced353d119d548d947aff7450 "bibtex main"
+  "main.out" 1775958380.68029 6712 0393e9ed3a19b630be268204660db3d3 "pdflatex"
+  "main.tex" 1775957746.46187 1509 34c6a858f41afac5d95c7a9bceb5aba0 ""
+  "main.toc" 1775958380.68045 3484 c3ec6b4e5a1f48ff3cf3ce5f11ea634d "pdflatex"
   (generated)
   "main.aux"
   "main.log"

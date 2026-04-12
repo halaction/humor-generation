@@ -23,7 +23,7 @@ This setup keeps the comparison interpretable. It isolates three distinct questi
 
 All training runs are planned for 1-2 \texttt{NVIDIA H200} GPUs on the HSE HPC cluster. This is sufficient for the intended model sizes and allows for parallelization accross instances.
 
-The comparison will use the evaluation pipeline that is already implemented in the repository. Outputs are paired for the same prompt, the left/right order is randomized, the judge is forced to choose exactly one winner, and model scores are aggregated with a Bradley-Terry leaderboard. This is sufficient for the experiment because the goal is to detect whether MRVF produces a measurable shift relative to the instruct and thinking baselines. A larger multidimensional evaluation with rubric-based scoring and human annotation is planned after training is completed. The immediate objective is narrower: to test whether the proposed procedure can improve pairwise humor preference under a controlled prompt set.
+The comparison will use the evaluation pipeline that is already implemented in the repository. Outputs are paired for the same prompt, the left/right order is randomized, the judge is forced to choose exactly one winner, and model scores are aggregated with a Bradley-Terry leaderboard. This is sufficient for the experiment because the goal is to detect whether MRVF produces a measurable shift relative to the instruct and thinking baselines. A larger multidimensional evaluation with rubric-based scoring and human annotation is planned after training is completed.
 
 \section{Planned ablations}
 

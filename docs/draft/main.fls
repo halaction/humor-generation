@@ -177,6 +177,7 @@ INPUT ./chapters/introduction.tex
 INPUT ./chapters/introduction.tex
 INPUT ./chapters/introduction.tex
 INPUT chapters/introduction.tex
+INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ectt1440.tfm
 INPUT ./chapters/literature-review.tex
 INPUT ./chapters/literature-review.tex
 INPUT ./chapters/literature-review.tex
@@ -188,7 +189,6 @@ INPUT ./chapters/methodology.tex
 INPUT ./chapters/methodology.tex
 INPUT ./chapters/methodology.tex
 INPUT chapters/methodology.tex
-INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ectt1440.tfm
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm1000.tfm
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm0700.tfm
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/tfm/jknappen/ec/ecrm1728.tfm
@@ -201,19 +201,9 @@ INPUT ./chapters/results.tex
 INPUT ./chapters/results.tex
 INPUT ./chapters/results.tex
 INPUT chapters/results.tex
-INPUT ./chapters/conclusion.tex
-INPUT ./chapters/conclusion.tex
-INPUT ./chapters/conclusion.tex
-INPUT ./chapters/conclusion.tex
-INPUT chapters/conclusion.tex
 INPUT ./main.bbl
 INPUT ./main.bbl
 INPUT main.bbl
-INPUT ./chapters/appendix.tex
-INPUT ./chapters/appendix.tex
-INPUT ./chapters/appendix.tex
-INPUT ./chapters/appendix.tex
-INPUT chapters/appendix.tex
 INPUT main.aux
 INPUT ./main.out
 INPUT ./main.out
