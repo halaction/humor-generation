@@ -1,0 +1,80 @@
+\documentclass[14pt,a4paper]{extreport}
+
+\usepackage[a4paper,left=30mm,right=10mm,top=20mm,bottom=20mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage[nottoc]{tocbibind}
+\usepackage{titlesec}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=black,
+  urlcolor=blue,
+}
+
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{0pt}
+\emergencystretch=3em
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+\setlist[itemize]{leftmargin=1.8em}
+\setlist[enumerate]{leftmargin=1.8em}
+\urlstyle{same}
+
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries\centering}
+  {\chaptertitlename\ \thechapter}
+  {0.5em}
+  {\Large}
+
+\newcommand{\prompt}[1]{\texttt{#1}}
+
+\begin{document}
+
+\pagenumbering{arabic}
+
+\tableofcontents
+\clearpage
+
+\chapter*{Introduction}
+\addcontentsline{toc}{chapter}{Introduction}
+
+\input{chapters/introduction}
+
+\chapter{Literature Review}
+
+\input{chapters/literature-review}
+
+\chapter{Methodology}
+
+\input{chapters/methodology}
+
+\chapter{Results}
+
+\input{chapters/results}
+
+% \chapter*{Conclusion}
+% \addcontentsline{toc}{chapter}{Conclusion}
+
+% % \input{chapters/conclusion}
+
+\renewcommand{\bibname}{References}
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% \appendix
+
+% \input{chapters/appendix}
+
+\end{document}
