@@ -25,7 +25,7 @@ class MRVFConfig:
     objective_mode: Literal["exact_scaled", "log_mass_surrogate", "mrvf_lite"] = "exact_scaled"
     reward_transform: Literal["log_mass", "centered_prob_mass"] = "centered_prob_mass"
     advantage_mode: Literal["loo", "grpo_zscore"] = "loo"
-    reference_length_normalization: Literal["none", "token_mean", "sqrt"] = "token_mean"
+    reference_length_normalization: Literal["none", "token_mean", "sqrt"] = "none"
     trace_loss_coef: float = 1.0
     reference_loss_coef: float = 0.5
     beta: float = 0.02
@@ -40,9 +40,19 @@ class MRVFConfig:
     lora_r: int = 32
     lora_alpha: int = 64
     lora_dropout: float = 0.0
+    lora_target_modules: tuple[str, ...] = (
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+    )
     torch_dtype: Literal["auto", "float16", "bfloat16", "float32"] = "auto"
     gradient_checkpointing: bool = False
     eval_every_steps: int = 0
+    trace_format: Literal["plain", "qwen_chat_thinking"] = "plain"
 
     def validate(self) -> None:
         if self.num_generations < 2:
@@ -50,4 +60,7 @@ class MRVFConfig:
             raise ValueError(msg)
         if self.trace_loss_coef < 0 or self.reference_loss_coef < 0 or self.beta < 0:
             msg = "`trace_loss_coef`, `reference_loss_coef`, and `beta` must be non-negative."
+            raise ValueError(msg)
+        if self.objective_mode == "exact_scaled" and self.reference_length_normalization != "none":
+            msg = "`objective_mode=exact_scaled` requires `reference_length_normalization=none`."
             raise ValueError(msg)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 import torch
@@ -12,7 +12,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedul
 from src.training.advantages import grpo_zscore_advantages, loo_advantages
 from src.training.config import MRVFConfig
 from src.training.data import prepare_mrvf_dataset
-from src.training.reference_likelihood import teacher_forced_reference_logps
+from src.training.reference_likelihood import teacher_forced_reference_logps_from_ids
 
 
 def _resolve_dtype(name: str) -> torch.dtype | None:
@@ -25,33 +25,57 @@ def _resolve_dtype(name: str) -> torch.dtype | None:
     return None
 
 
-def _sequence_logprob_from_texts(
+@dataclass
+class TraceBatch:
+    prompt_texts: list[str]
+    prompt_ids: list[list[int]]
+    trace_ids: list[list[int]]
+    trace_texts: list[str]
+    references: list[list[str]]
+
+
+def _build_sequence_logprob_inputs(
+    tokenizer: Any,
+    prefix_ids: list[list[int]],
+    completion_ids: list[list[int]],
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    max_len = max(len(prefix) + len(completion) for prefix, completion in zip(prefix_ids, completion_ids, strict=True))
+    input_rows: list[list[int]] = []
+    attn_rows: list[list[int]] = []
+    target_rows: list[list[int]] = []
+
+    for prefix, completion in zip(prefix_ids, completion_ids, strict=True):
+        ids = prefix + completion
+        pad = max_len - len(ids)
+        row = ids + [tokenizer.pad_token_id] * pad
+        attn = [1] * len(ids) + [0] * pad
+        target = [0] * len(prefix) + [1] * len(completion) + [0] * pad
+        input_rows.append(row)
+        attn_rows.append(attn)
+        target_rows.append(target)
+
+    return (
+        torch.tensor(input_rows, dtype=torch.long),
+        torch.tensor(attn_rows, dtype=torch.long),
+        torch.tensor(target_rows, dtype=torch.long),
+    )
+
+
+def _sequence_logprobs_from_ids(
     *,
     model: torch.nn.Module,
-    tokenizer: Any,
-    prefix_texts: list[str],
-    completion_texts: list[str],
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    target_mask: torch.Tensor,
 ) -> torch.Tensor:
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    sequences = [prefix + completion for prefix, completion in zip(prefix_texts, completion_texts, strict=True)]
-    tokenized = tokenizer(sequences, padding=True, truncation=True, return_tensors="pt")
-    prefix_ids = [
-        tokenizer(prefix, add_special_tokens=False)["input_ids"]
-        for prefix in prefix_texts
-    ]
-    device = next(model.parameters()).device
-    input_ids = tokenized["input_ids"].to(device)
-    attention_mask = tokenized["attention_mask"].to(device)
     logits = model(input_ids=input_ids, attention_mask=attention_mask).logits[:, :-1, :]
     labels = input_ids[:, 1:]
-    logprobs = torch.log_softmax(logits, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    shifted_target_mask = target_mask[:, 1:].to(logits.dtype)
+    shifted_attn_mask = attention_mask[:, 1:].to(logits.dtype)
+    effective_mask = shifted_target_mask * shifted_attn_mask
 
-    token_mask = torch.zeros_like(labels, dtype=logprobs.dtype)
-    for row_idx, prefix in enumerate(prefix_ids):
-        start = max(len(prefix) - 1, 0)
-        token_mask[row_idx, start:] = 1.0
-    return (logprobs * token_mask).sum(dim=-1)
+    token_logprobs = torch.log_softmax(logits, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
+    return (token_logprobs * effective_mask).sum(dim=-1)
 
 
 class MRVFTrainer:
@@ -69,13 +93,17 @@ class MRVFTrainer:
         self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name_or_path, use_fast=True)
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.tokenizer.padding_side = "left"
+
         self.model = AutoModelForCausalLM.from_pretrained(cfg.model_name_or_path, **model_kwargs).to(self.device)
         self.model.train()
-
         self.ref_model = AutoModelForCausalLM.from_pretrained(cfg.model_name_or_path, **model_kwargs).to(self.device)
         self.ref_model.eval()
         for param in self.ref_model.parameters():
             param.requires_grad = False
+
+        if cfg.use_peft:
+            self._enable_lora()
 
         if cfg.gradient_checkpointing and hasattr(self.model, "gradient_checkpointing_enable"):
             self.model.gradient_checkpointing_enable()
@@ -88,7 +116,35 @@ class MRVFTrainer:
             num_training_steps=cfg.max_steps,
         )
 
-    def _build_trace_prompt(self, prompt: str) -> str:
+    def _enable_lora(self) -> None:
+        try:
+            from peft import LoraConfig, TaskType, get_peft_model
+        except ImportError as error:  # pragma: no cover
+            msg = "`use_peft=True` requires `peft` package."
+            raise RuntimeError(msg) from error
+
+        peft_config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            r=self.cfg.lora_r,
+            lora_alpha=self.cfg.lora_alpha,
+            lora_dropout=self.cfg.lora_dropout,
+            bias="none",
+            target_modules=list(self.cfg.lora_target_modules),
+        )
+        self.model = get_peft_model(self.model, peft_config)
+
+    def _build_trace_prompt_text(self, prompt: str) -> str:
+        if self.cfg.trace_format == "qwen_chat_thinking":
+            messages = [{"role": "user", "content": f"{prompt}\n{self.cfg.trace_instruction}"}]
+            try:
+                return self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=True,
+                )
+            except TypeError:
+                return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         if not self.cfg.use_thinking:
             return f"{prompt}\n{self.cfg.trace_instruction}"
         return (
@@ -96,82 +152,111 @@ class MRVFTrainer:
             "Think briefly using <think>...</think>, and output only the plan inside the think block."
         )
 
-    def _generate_grouped_traces(self, prompts: list[str]) -> list[str]:
-        repeated_prompts = [self._build_trace_prompt(prompt) for prompt in prompts for _ in range(self.cfg.num_generations)]
-        tokenized = self.tokenizer(repeated_prompts, padding=True, return_tensors="pt").to(self.device)
+    def _generate_trace_batch(self, prompts: list[str], references: list[list[str]]) -> TraceBatch:
+        grouped_prompt_texts: list[str] = []
+        grouped_prompt_ids: list[list[int]] = []
+        grouped_references: list[list[str]] = []
+        for prompt, refs in zip(prompts, references, strict=True):
+            prompt_text = self._build_trace_prompt_text(prompt)
+            prompt_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+            for _ in range(self.cfg.num_generations):
+                grouped_prompt_texts.append(prompt_text)
+                grouped_prompt_ids.append(prompt_ids)
+                grouped_references.append(refs)
+
+        encoded = self.tokenizer(grouped_prompt_texts, padding=True, return_tensors="pt")
+        input_ids = encoded["input_ids"].to(self.device)
+        attention_mask = encoded["attention_mask"].to(self.device)
+        prompt_lengths = attention_mask.sum(dim=1).tolist()
+
         with torch.no_grad():
             generated = self.model.generate(
-                **tokenized,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
                 do_sample=True,
                 max_new_tokens=self.cfg.max_trace_length,
                 temperature=self.cfg.temperature,
                 top_p=self.cfg.top_p,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
-        prompt_len = tokenized["input_ids"].shape[1]
-        completion_ids = generated[:, prompt_len:]
-        return self.tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
 
-    def _compute_kl(self, prefixes: list[str], traces: list[str]) -> torch.Tensor:
+        trace_ids: list[list[int]] = []
+        trace_texts: list[str] = []
+        for idx, prompt_len in enumerate(prompt_lengths):
+            row = generated[idx].tolist()
+            completion = row[prompt_len:]
+            completion = [token for token in completion if token != self.tokenizer.pad_token_id]
+            trace_ids.append(completion)
+            trace_texts.append(self.tokenizer.decode(completion, skip_special_tokens=True))
+
+        return TraceBatch(
+            prompt_texts=grouped_prompt_texts,
+            prompt_ids=grouped_prompt_ids,
+            trace_ids=trace_ids,
+            trace_texts=trace_texts,
+            references=grouped_references,
+        )
+
+    def _trace_logprobs(self, trace_batch: TraceBatch, model: torch.nn.Module) -> torch.Tensor:
+        input_ids, attention_mask, target_mask = _build_sequence_logprob_inputs(
+            tokenizer=self.tokenizer,
+            prefix_ids=trace_batch.prompt_ids,
+            completion_ids=trace_batch.trace_ids,
+        )
+        return _sequence_logprobs_from_ids(
+            model=model,
+            input_ids=input_ids.to(self.device),
+            attention_mask=attention_mask.to(self.device),
+            target_mask=target_mask.to(self.device),
+        )
+
+    def _compute_kl(self, trace_batch: TraceBatch) -> torch.Tensor:
         if self.cfg.beta == 0:
             return torch.zeros((), device=self.device)
+        curr = self._trace_logprobs(trace_batch, self.model)
         with torch.no_grad():
-            ref_logp = _sequence_logprob_from_texts(
-                model=self.ref_model,
-                tokenizer=self.tokenizer,
-                prefix_texts=prefixes,
-                completion_texts=traces,
-            )
-        curr_logp = _sequence_logprob_from_texts(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            prefix_texts=prefixes,
-            completion_texts=traces,
-        )
-        return (curr_logp - ref_logp).mean()
+            ref = self._trace_logprobs(trace_batch, self.ref_model)
+        return (curr - ref).mean()
 
     def _compute_losses_for_batch(self, batch_rows: list[dict[str, Any]]) -> tuple[torch.Tensor, dict[str, float]]:
         prompts = [row["prompt"] for row in batch_rows]
         references = [row["references"][: self.cfg.num_reference_samples] for row in batch_rows]
-        trace_texts = self._generate_grouped_traces(prompts)
-        grouped_refs = [refs for refs in references for _ in range(self.cfg.num_generations)]
-        grouped_prompts = [self._build_trace_prompt(prompt) for prompt in prompts for _ in range(self.cfg.num_generations)]
+        trace_batch = self._generate_trace_batch(prompts, references)
+        grouped_size = len(batch_rows)
 
-        trace_logprob = _sequence_logprob_from_texts(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            prefix_texts=grouped_prompts,
-            completion_texts=trace_texts,
-        )
+        trace_logprob = self._trace_logprobs(trace_batch, self.model)
+        prefix_ids_for_refs = [
+            prompt_ids + trace_ids + self.tokenizer(self.cfg.answer_prefix, add_special_tokens=False)["input_ids"]
+            for prompt_ids, trace_ids in zip(trace_batch.prompt_ids, trace_batch.trace_ids, strict=True)
+        ]
 
         with torch.no_grad():
-            reward_outputs = teacher_forced_reference_logps(
+            reward_outputs = teacher_forced_reference_logps_from_ids(
                 model=self.model,
                 tokenizer=self.tokenizer,
-                prompt_texts=grouped_prompts,
-                trace_texts=trace_texts,
-                references=grouped_refs,
+                prefix_ids_per_sample=prefix_ids_for_refs,
+                references=trace_batch.references,
                 max_reference_length=self.cfg.max_reference_length,
-                answer_prefix=self.cfg.answer_prefix,
                 length_normalization=self.cfg.reference_length_normalization,
             )
-
-        ref_outputs = teacher_forced_reference_logps(
+        ref_outputs = teacher_forced_reference_logps_from_ids(
             model=self.model,
             tokenizer=self.tokenizer,
-            prompt_texts=grouped_prompts,
-            trace_texts=trace_texts,
-            references=grouped_refs,
+            prefix_ids_per_sample=prefix_ids_for_refs,
+            references=trace_batch.references,
             max_reference_length=self.cfg.max_reference_length,
-            answer_prefix=self.cfg.answer_prefix,
             length_normalization=self.cfg.reference_length_normalization,
         )
 
-        grouped_log_mass = reward_outputs.log_mass.view(len(batch_rows), self.cfg.num_generations)
-        if self.cfg.reward_transform == "log_mass":
-            rewards = grouped_log_mass.reshape(-1)
+        if self.cfg.objective_mode == "log_mass_surrogate":
+            grouped_scores_for_reward = reward_outputs.log_mass_normalized.view(grouped_size, self.cfg.num_generations)
         else:
-            centered = grouped_log_mass - grouped_log_mass.max(dim=1, keepdim=True).values
+            grouped_scores_for_reward = reward_outputs.log_mass_raw.view(grouped_size, self.cfg.num_generations)
+
+        if self.cfg.reward_transform == "log_mass":
+            rewards = grouped_scores_for_reward.reshape(-1)
+        else:
+            centered = grouped_scores_for_reward - grouped_scores_for_reward.max(dim=1, keepdim=True).values
             rewards = torch.exp(centered).reshape(-1)
 
         rewards_for_adv = rewards.detach()
@@ -179,19 +264,18 @@ class MRVFTrainer:
             advantages = loo_advantages(rewards_for_adv, self.cfg.num_generations)
         else:
             advantages = grpo_zscore_advantages(rewards_for_adv, self.cfg.num_generations)
-
         trace_loss = -(advantages * trace_logprob).mean()
 
         if self.cfg.objective_mode == "mrvf_lite" or self.cfg.reference_loss_coef == 0:
             reference_loss = torch.zeros((), device=self.device)
         elif self.cfg.objective_mode == "log_mass_surrogate":
-            reference_loss = -ref_outputs.log_mass.mean()
+            reference_loss = -ref_outputs.log_mass_normalized.mean()
         else:
-            log_mass = ref_outputs.log_mass.view(len(batch_rows), self.cfg.num_generations)
-            stabilized = torch.exp(log_mass - log_mass.detach().max(dim=1, keepdim=True).values)
+            grouped_raw = ref_outputs.log_mass_raw.view(grouped_size, self.cfg.num_generations)
+            stabilized = torch.exp(grouped_raw - grouped_raw.detach().max(dim=1, keepdim=True).values)
             reference_loss = -stabilized.mean()
 
-        kl_term = self._compute_kl(grouped_prompts, trace_texts)
+        kl_term = self._compute_kl(trace_batch)
         loss = (
             self.cfg.trace_loss_coef * trace_loss
             + self.cfg.reference_loss_coef * reference_loss
@@ -215,8 +299,12 @@ class MRVFTrainer:
             raise RuntimeError(msg)
 
         batch_size = max(1, self.cfg.per_device_train_batch_size)
+        accum = max(1, self.cfg.gradient_accumulation_steps)
+        self.optimizer.zero_grad(set_to_none=True)
         global_step = 0
+        micro_step = 0
         history: list[dict[str, float]] = []
+
         while global_step < self.cfg.max_steps:
             self.random.shuffle(train_rows)
             for start in range(0, len(train_rows), batch_size):
@@ -224,15 +312,24 @@ class MRVFTrainer:
                 if not batch:
                     continue
                 loss, metrics = self._compute_losses_for_batch(batch)
-                loss.backward()
+                (loss / accum).backward()
+                history.append(metrics)
+                micro_step += 1
+                if micro_step % accum == 0:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.max_grad_norm)
+                    self.optimizer.step()
+                    self.scheduler.step()
+                    self.optimizer.zero_grad(set_to_none=True)
+                    global_step += 1
+                    if global_step >= self.cfg.max_steps:
+                        break
+
+            if micro_step % accum != 0 and global_step < self.cfg.max_steps:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.max_grad_norm)
                 self.optimizer.step()
                 self.scheduler.step()
                 self.optimizer.zero_grad(set_to_none=True)
-                history.append(metrics)
                 global_step += 1
-                if global_step >= self.cfg.max_steps:
-                    break
 
         self.model.save_pretrained(self.cfg.output_dir)
         self.tokenizer.save_pretrained(self.cfg.output_dir)

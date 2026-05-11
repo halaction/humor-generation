@@ -10,9 +10,11 @@ if TYPE_CHECKING:
 
 @dataclass
 class ReferenceLikelihoodOutput:
-    ref_logps: "torch.Tensor"
+    ref_logps_raw: "torch.Tensor"
+    ref_logps_normalized: "torch.Tensor"
     ref_lengths: "torch.Tensor"
-    log_mass: "torch.Tensor"
+    log_mass_raw: "torch.Tensor"
+    log_mass_normalized: "torch.Tensor"
 
 
 def _require_torch() -> "torch":
@@ -34,31 +36,26 @@ def _normalize_sequence_logps(logps: "torch.Tensor", lengths: "torch.Tensor", mo
     return logps
 
 
-def teacher_forced_reference_logps(
+def teacher_forced_reference_logps_from_ids(
     *,
     model: "torch.nn.Module",
     tokenizer: "PreTrainedTokenizerBase",
-    prompt_texts: list[str],
-    trace_texts: list[str],
+    prefix_ids_per_sample: list[list[int]],
     references: list[list[str]],
     max_reference_length: int,
-    answer_prefix: str,
     length_normalization: str,
 ) -> ReferenceLikelihoodOutput:
     torch = _require_torch()
-    if len(prompt_texts) != len(trace_texts) or len(prompt_texts) != len(references):
-        msg = "`prompt_texts`, `trace_texts`, and `references` must have the same length."
+    if len(prefix_ids_per_sample) != len(references):
+        msg = "`prefix_ids_per_sample` and `references` must have the same length."
         raise ValueError(msg)
-
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     flat_sequences: list[list[int]] = []
     flat_masks: list[list[int]] = []
     counts: list[int] = []
-    for prompt, trace, prompt_refs in zip(prompt_texts, trace_texts, references, strict=True):
-        prefix_text = f"{prompt}{trace}{answer_prefix}"
-        prefix_ids = tokenizer(prefix_text, add_special_tokens=False)["input_ids"]
+    for prefix_ids, prompt_refs in zip(prefix_ids_per_sample, references, strict=True):
         per_prompt_count = 0
         for reference in prompt_refs:
             ref_ids = tokenizer(
@@ -77,11 +74,13 @@ def teacher_forced_reference_logps(
         counts.append(per_prompt_count)
 
     if not flat_sequences:
-        zeros = torch.zeros(len(prompt_texts), device=next(model.parameters()).device)
+        zeros = torch.zeros(len(prefix_ids_per_sample), device=next(model.parameters()).device)
         return ReferenceLikelihoodOutput(
-            ref_logps=zeros.unsqueeze(-1),
+            ref_logps_raw=zeros.unsqueeze(-1),
+            ref_logps_normalized=zeros.unsqueeze(-1),
             ref_lengths=zeros.unsqueeze(-1),
-            log_mass=zeros,
+            log_mass_raw=zeros,
+            log_mass_normalized=zeros,
         )
 
     max_len = max(len(item) for item in flat_sequences)
@@ -103,36 +102,74 @@ def teacher_forced_reference_logps(
     logits = outputs.logits[:, :-1, :]
     labels = input_ids[:, 1:]
     shifted_ref_mask = ref_mask[:, 1:].to(logits.dtype)
+    shifted_attn_mask = attention_mask[:, 1:].to(logits.dtype)
+    target_mask = shifted_ref_mask * shifted_attn_mask
 
     token_logprobs = torch.log_softmax(logits, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
-    seq_logps = (token_logprobs * shifted_ref_mask).sum(dim=-1)
-    seq_lengths = shifted_ref_mask.sum(dim=-1).clamp_min(1)
-    seq_scores = _normalize_sequence_logps(seq_logps, seq_lengths, length_normalization)
+    seq_logps_raw = (token_logprobs * target_mask).sum(dim=-1)
+    seq_lengths = target_mask.sum(dim=-1).clamp_min(1)
+    seq_logps_norm = _normalize_sequence_logps(seq_logps_raw, seq_lengths, length_normalization)
 
-    per_prompt_scores: list[torch.Tensor] = []
-    per_prompt_lengths: list[torch.Tensor] = []
+    per_prompt_raw: list[torch.Tensor] = []
+    per_prompt_norm: list[torch.Tensor] = []
+    per_prompt_len: list[torch.Tensor] = []
     start = 0
     max_refs = max(max(counts), 1)
     for count in counts:
         if count == 0:
-            per_prompt_scores.append(torch.full((max_refs,), float("-inf"), device=device))
-            per_prompt_lengths.append(torch.zeros((max_refs,), device=device))
+            per_prompt_raw.append(torch.full((max_refs,), float("-inf"), device=device))
+            per_prompt_norm.append(torch.full((max_refs,), float("-inf"), device=device))
+            per_prompt_len.append(torch.zeros((max_refs,), device=device))
             continue
-        chunk_scores = seq_scores[start : start + count]
-        chunk_lengths = seq_lengths[start : start + count]
+        chunk_raw = seq_logps_raw[start : start + count]
+        chunk_norm = seq_logps_norm[start : start + count]
+        chunk_len = seq_lengths[start : start + count]
         start += count
         if count < max_refs:
             pad = max_refs - count
-            chunk_scores = torch.cat([chunk_scores, torch.full((pad,), float("-inf"), device=device)], dim=0)
-            chunk_lengths = torch.cat([chunk_lengths, torch.zeros((pad,), device=device)], dim=0)
-        per_prompt_scores.append(chunk_scores)
-        per_prompt_lengths.append(chunk_lengths)
+            pad_vals = torch.full((pad,), float("-inf"), device=device)
+            chunk_raw = torch.cat([chunk_raw, pad_vals], dim=0)
+            chunk_norm = torch.cat([chunk_norm, pad_vals], dim=0)
+            chunk_len = torch.cat([chunk_len, torch.zeros((pad,), device=device)], dim=0)
+        per_prompt_raw.append(chunk_raw)
+        per_prompt_norm.append(chunk_norm)
+        per_prompt_len.append(chunk_len)
 
-    ref_logps = torch.stack(per_prompt_scores, dim=0)
-    ref_lengths = torch.stack(per_prompt_lengths, dim=0)
-    log_mass = torch.logsumexp(ref_logps, dim=-1)
+    ref_logps_raw = torch.stack(per_prompt_raw, dim=0)
+    ref_logps_normalized = torch.stack(per_prompt_norm, dim=0)
+    ref_lengths = torch.stack(per_prompt_len, dim=0)
+    log_mass_raw = torch.logsumexp(ref_logps_raw, dim=-1)
+    log_mass_normalized = torch.logsumexp(ref_logps_normalized, dim=-1)
     return ReferenceLikelihoodOutput(
-        ref_logps=ref_logps,
+        ref_logps_raw=ref_logps_raw,
+        ref_logps_normalized=ref_logps_normalized,
         ref_lengths=ref_lengths,
-        log_mass=log_mass,
+        log_mass_raw=log_mass_raw,
+        log_mass_normalized=log_mass_normalized,
+    )
+
+
+def teacher_forced_reference_logps(
+    *,
+    model: "torch.nn.Module",
+    tokenizer: "PreTrainedTokenizerBase",
+    prompt_texts: list[str],
+    trace_texts: list[str],
+    references: list[list[str]],
+    max_reference_length: int,
+    answer_prefix: str,
+    length_normalization: str,
+) -> ReferenceLikelihoodOutput:
+    prefixes = []
+    for prompt, trace in zip(prompt_texts, trace_texts, strict=True):
+        prefix_text = f"{prompt}{trace}{answer_prefix}"
+        prefix_ids = tokenizer(prefix_text, add_special_tokens=False)["input_ids"]
+        prefixes.append(prefix_ids)
+    return teacher_forced_reference_logps_from_ids(
+        model=model,
+        tokenizer=tokenizer,
+        prefix_ids_per_sample=prefixes,
+        references=references,
+        max_reference_length=max_reference_length,
+        length_normalization=length_normalization,
     )

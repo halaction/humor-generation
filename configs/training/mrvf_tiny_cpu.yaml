@@ -16,7 +16,7 @@ num_reference_samples: 2
 objective_mode: exact_scaled
 reward_transform: centered_prob_mass
 advantage_mode: loo
-reference_length_normalization: token_mean
+reference_length_normalization: none
 trace_loss_coef: 1.0
 reference_loss_coef: 0.5
 beta: 0.0

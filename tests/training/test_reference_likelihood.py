@@ -70,7 +70,10 @@ def test_reference_likelihood_shapes_and_finite() -> None:
         answer_prefix="\nA:\n",
         length_normalization="token_mean",
     )
-    assert output.ref_logps.shape == (2, 2)
+    assert output.ref_logps_raw.shape == (2, 2)
+    assert output.ref_logps_normalized.shape == (2, 2)
     assert output.ref_lengths.shape == (2, 2)
-    assert output.log_mass.shape == (2,)
-    assert torch.isfinite(output.log_mass).all()
+    assert output.log_mass_raw.shape == (2,)
+    assert output.log_mass_normalized.shape == (2,)
+    assert torch.isfinite(output.log_mass_raw).all()
+    assert torch.isfinite(output.log_mass_normalized).all()
