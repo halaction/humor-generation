@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import random
 from dataclasses import asdict, dataclass
+import json
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -12,6 +14,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedul
 from src.training.advantages import grpo_zscore_advantages, loo_advantages
 from src.training.config import MRVFConfig
 from src.training.data import prepare_mrvf_dataset
+from src.training.generation_utils import extract_completion_ids
 from src.training.reference_likelihood import teacher_forced_reference_logps_from_ids
 
 
@@ -108,13 +111,15 @@ class MRVFTrainer:
         if cfg.gradient_checkpointing and hasattr(self.model, "gradient_checkpointing_enable"):
             self.model.gradient_checkpointing_enable()
 
-        self.optimizer = AdamW(self.model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
+        trainable_params = (param for param in self.model.parameters() if param.requires_grad)
+        self.optimizer = AdamW(trainable_params, lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
         warmup_steps = int(cfg.max_steps * cfg.warmup_ratio)
         self.scheduler = get_cosine_schedule_with_warmup(
             self.optimizer,
             num_warmup_steps=warmup_steps,
             num_training_steps=cfg.max_steps,
         )
+        self._current_step = 0
 
     def _enable_lora(self) -> None:
         try:
@@ -164,10 +169,13 @@ class MRVFTrainer:
                 grouped_prompt_ids.append(prompt_ids)
                 grouped_references.append(refs)
 
-        encoded = self.tokenizer(grouped_prompt_texts, padding=True, return_tensors="pt")
+        encoded = self.tokenizer(grouped_prompt_texts, padding=True, add_special_tokens=False, return_tensors="pt")
         input_ids = encoded["input_ids"].to(self.device)
         attention_mask = encoded["attention_mask"].to(self.device)
-        prompt_lengths = attention_mask.sum(dim=1).tolist()
+        input_width = input_ids.shape[1]
+        grouped_prompt_ids = []
+        for row_ids, row_mask in zip(input_ids.tolist(), attention_mask.tolist(), strict=True):
+            grouped_prompt_ids.append([token for token, mask in zip(row_ids, row_mask, strict=True) if mask == 1])
 
         with torch.no_grad():
             generated = self.model.generate(
@@ -182,10 +190,13 @@ class MRVFTrainer:
 
         trace_ids: list[list[int]] = []
         trace_texts: list[str] = []
-        for idx, prompt_len in enumerate(prompt_lengths):
+        for idx in range(generated.shape[0]):
             row = generated[idx].tolist()
-            completion = row[prompt_len:]
-            completion = [token for token in completion if token != self.tokenizer.pad_token_id]
+            completion = extract_completion_ids(
+                row,
+                input_width=input_width,
+                pad_token_id=self.tokenizer.pad_token_id,
+            )
             trace_ids.append(completion)
             trace_texts.append(self.tokenizer.decode(completion, skip_special_tokens=True))
 
@@ -211,12 +222,44 @@ class MRVFTrainer:
         )
 
     def _compute_kl(self, trace_batch: TraceBatch) -> torch.Tensor:
-        if self.cfg.beta == 0:
-            return torch.zeros((), device=self.device)
-        curr = self._trace_logprobs(trace_batch, self.model)
-        with torch.no_grad():
-            ref = self._trace_logprobs(trace_batch, self.ref_model)
-        return (curr - ref).mean()
+        del trace_batch
+        return torch.zeros((), device=self.device)
+
+    def _append_sample_log(
+        self,
+        *,
+        step: int,
+        batch_rows: list[dict[str, Any]],
+        trace_batch: TraceBatch,
+        rewards: torch.Tensor,
+        advantages: torch.Tensor,
+        trace_loss: torch.Tensor,
+        reference_loss: torch.Tensor,
+    ) -> None:
+        if self.cfg.logging_steps <= 0 or step % self.cfg.logging_steps != 0 or not batch_rows:
+            return
+        sample = {
+            "step": step,
+            "prompt": batch_rows[0]["prompt"],
+            "trace": trace_batch.trace_texts[0] if trace_batch.trace_texts else "",
+            "references": trace_batch.references[0] if trace_batch.references else [],
+            "reward": float(rewards[0].item()) if rewards.numel() else 0.0,
+            "advantage": float(advantages[0].item()) if advantages.numel() else 0.0,
+            "trace_loss": float(trace_loss.detach().item()),
+            "reference_loss": float(reference_loss.detach().item()),
+        }
+        path = Path(self.cfg.sample_log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(sample) + "\n")
+
+    def _save_checkpoint(self, step: int) -> None:
+        if self.cfg.save_steps <= 0 or step == 0 or step % self.cfg.save_steps != 0:
+            return
+        checkpoint_dir = Path(self.cfg.output_dir) / f"step-{step}"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self.model.save_pretrained(checkpoint_dir)
+        self.tokenizer.save_pretrained(checkpoint_dir)
 
     def _compute_losses_for_batch(self, batch_rows: list[dict[str, Any]]) -> tuple[torch.Tensor, dict[str, float]]:
         prompts = [row["prompt"] for row in batch_rows]
@@ -288,6 +331,15 @@ class MRVFTrainer:
             "kl": float(kl_term.detach().item()),
             "reward_mean": float(rewards_for_adv.mean().item()),
         }
+        self._append_sample_log(
+            step=self._current_step,
+            batch_rows=batch_rows,
+            trace_batch=trace_batch,
+            rewards=rewards_for_adv,
+            advantages=advantages,
+            trace_loss=trace_loss,
+            reference_loss=reference_loss,
+        )
         return loss, metrics
 
     def train(self, raw_train_dataset: Dataset, raw_eval_dataset: Dataset) -> dict[str, Any]:
@@ -304,6 +356,7 @@ class MRVFTrainer:
         global_step = 0
         micro_step = 0
         history: list[dict[str, float]] = []
+        self._current_step = 0
 
         while global_step < self.cfg.max_steps:
             self.random.shuffle(train_rows)
@@ -321,6 +374,8 @@ class MRVFTrainer:
                     self.scheduler.step()
                     self.optimizer.zero_grad(set_to_none=True)
                     global_step += 1
+                    self._current_step = global_step
+                    self._save_checkpoint(global_step)
                     if global_step >= self.cfg.max_steps:
                         break
 
@@ -330,6 +385,8 @@ class MRVFTrainer:
                 self.scheduler.step()
                 self.optimizer.zero_grad(set_to_none=True)
                 global_step += 1
+                self._current_step = global_step
+                self._save_checkpoint(global_step)
 
         self.model.save_pretrained(self.cfg.output_dir)
         self.tokenizer.save_pretrained(self.cfg.output_dir)

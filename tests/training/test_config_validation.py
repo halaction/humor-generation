@@ -13,3 +13,9 @@ def test_num_generations_validation() -> None:
     cfg = MRVFConfig(num_generations=1, objective_mode="log_mass_surrogate")
     with pytest.raises(ValueError, match="num_generations"):
         cfg.validate()
+
+
+def test_beta_must_be_zero_for_now() -> None:
+    cfg = MRVFConfig(beta=0.01)
+    with pytest.raises(ValueError, match="KL regularization is temporarily disabled"):
+        cfg.validate()

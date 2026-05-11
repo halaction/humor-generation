@@ -28,7 +28,7 @@ class MRVFConfig:
     reference_length_normalization: Literal["none", "token_mean", "sqrt"] = "none"
     trace_loss_coef: float = 1.0
     reference_loss_coef: float = 0.5
-    beta: float = 0.02
+    beta: float = 0.0
     temperature: float = 1.0
     top_p: float = 0.95
     trace_instruction: str = "First think briefly about setup and twist. Return only the plan."
@@ -53,6 +53,9 @@ class MRVFConfig:
     gradient_checkpointing: bool = False
     eval_every_steps: int = 0
     trace_format: Literal["plain", "qwen_chat_thinking"] = "plain"
+    logging_steps: int = 10
+    save_steps: int = 100
+    sample_log_path: str = "data/logs/mrvf_samples.jsonl"
 
     def validate(self) -> None:
         if self.num_generations < 2:
@@ -60,6 +63,9 @@ class MRVFConfig:
             raise ValueError(msg)
         if self.trace_loss_coef < 0 or self.reference_loss_coef < 0 or self.beta < 0:
             msg = "`trace_loss_coef`, `reference_loss_coef`, and `beta` must be non-negative."
+            raise ValueError(msg)
+        if self.beta != 0:
+            msg = "KL regularization is temporarily disabled; set `beta=0.0`."
             raise ValueError(msg)
         if self.objective_mode == "exact_scaled" and self.reference_length_normalization != "none":
             msg = "`objective_mode=exact_scaled` requires `reference_length_normalization=none`."
