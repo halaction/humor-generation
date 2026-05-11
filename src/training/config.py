@@ -22,12 +22,13 @@ class MRVFConfig:
     max_trace_length: int = 64
     max_reference_length: int = 128
     num_reference_samples: int = 5
-    objective_mode: Literal["exact_scaled", "log_mass_surrogate", "mrvf_lite"] = "exact_scaled"
-    reward_transform: Literal["log_mass", "centered_prob_mass"] = "centered_prob_mass"
+    objective_mode: Literal["exact_scaled", "log_mass_surrogate", "mrvf_lite"] = "log_mass_surrogate"
+    reward_transform: Literal["log_mass", "centered_prob_mass"] = "log_mass"
     advantage_mode: Literal["loo", "grpo_zscore"] = "loo"
-    reference_length_normalization: Literal["none", "token_mean", "sqrt"] = "none"
+    reference_length_normalization: Literal["none", "token_mean", "sqrt"] = "token_mean"
     trace_loss_coef: float = 1.0
     reference_loss_coef: float = 0.5
+    use_kl: bool = False
     beta: float = 0.0
     temperature: float = 1.0
     top_p: float = 0.95
@@ -64,8 +65,11 @@ class MRVFConfig:
         if self.trace_loss_coef < 0 or self.reference_loss_coef < 0 or self.beta < 0:
             msg = "`trace_loss_coef`, `reference_loss_coef`, and `beta` must be non-negative."
             raise ValueError(msg)
-        if self.beta != 0:
-            msg = "KL regularization is temporarily disabled; set `beta=0.0`."
+        if not self.use_kl and self.beta != 0:
+            msg = "`use_kl=False` requires `beta=0.0`."
+            raise ValueError(msg)
+        if self.use_kl:
+            msg = "KL mode is not implemented yet; set `use_kl=False`."
             raise ValueError(msg)
         if self.objective_mode == "exact_scaled" and self.reference_length_normalization != "none":
             msg = "`objective_mode=exact_scaled` requires `reference_length_normalization=none`."

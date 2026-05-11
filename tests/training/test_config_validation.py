@@ -15,7 +15,23 @@ def test_num_generations_validation() -> None:
         cfg.validate()
 
 
-def test_beta_must_be_zero_for_now() -> None:
-    cfg = MRVFConfig(beta=0.01)
-    with pytest.raises(ValueError, match="KL regularization is temporarily disabled"):
+def test_beta_requires_kl_disabled_mode() -> None:
+    cfg = MRVFConfig(beta=0.01, use_kl=False)
+    with pytest.raises(ValueError, match="use_kl=False"):
         cfg.validate()
+
+
+def test_use_kl_not_implemented() -> None:
+    cfg = MRVFConfig(use_kl=True)
+    with pytest.raises(ValueError, match="not implemented"):
+        cfg.validate()
+
+
+def test_default_config_is_stable_surrogate_mode() -> None:
+    cfg = MRVFConfig()
+    assert cfg.objective_mode == "log_mass_surrogate"
+    assert cfg.reward_transform == "log_mass"
+    assert cfg.reference_length_normalization == "token_mean"
+    assert cfg.use_kl is False
+    assert cfg.beta == 0.0
+    cfg.validate()

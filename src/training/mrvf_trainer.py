@@ -37,6 +37,17 @@ class TraceBatch:
     references: list[list[str]]
 
 
+@dataclass
+class BatchDebugSample:
+    prompt: str
+    trace: str
+    references: list[str]
+    reward: float
+    advantage: float
+    trace_loss: float
+    reference_loss: float
+
+
 def _build_sequence_logprob_inputs(
     tokenizer: Any,
     prefix_ids: list[list[int]],
@@ -100,10 +111,6 @@ class MRVFTrainer:
 
         self.model = AutoModelForCausalLM.from_pretrained(cfg.model_name_or_path, **model_kwargs).to(self.device)
         self.model.train()
-        self.ref_model = AutoModelForCausalLM.from_pretrained(cfg.model_name_or_path, **model_kwargs).to(self.device)
-        self.ref_model.eval()
-        for param in self.ref_model.parameters():
-            param.requires_grad = False
 
         if cfg.use_peft:
             self._enable_lora()
@@ -223,35 +230,33 @@ class MRVFTrainer:
 
     def _compute_kl(self, trace_batch: TraceBatch) -> torch.Tensor:
         del trace_batch
+        if self.cfg.use_kl:
+            msg = "KL mode is not implemented yet."
+            raise RuntimeError(msg)
         return torch.zeros((), device=self.device)
 
     def _append_sample_log(
         self,
         *,
         step: int,
-        batch_rows: list[dict[str, Any]],
-        trace_batch: TraceBatch,
-        rewards: torch.Tensor,
-        advantages: torch.Tensor,
-        trace_loss: torch.Tensor,
-        reference_loss: torch.Tensor,
+        sample: BatchDebugSample | None,
     ) -> None:
-        if self.cfg.logging_steps <= 0 or step % self.cfg.logging_steps != 0 or not batch_rows:
+        if self.cfg.logging_steps <= 0 or step == 0 or step % self.cfg.logging_steps != 0 or sample is None:
             return
-        sample = {
+        payload = {
             "step": step,
-            "prompt": batch_rows[0]["prompt"],
-            "trace": trace_batch.trace_texts[0] if trace_batch.trace_texts else "",
-            "references": trace_batch.references[0] if trace_batch.references else [],
-            "reward": float(rewards[0].item()) if rewards.numel() else 0.0,
-            "advantage": float(advantages[0].item()) if advantages.numel() else 0.0,
-            "trace_loss": float(trace_loss.detach().item()),
-            "reference_loss": float(reference_loss.detach().item()),
+            "prompt": sample.prompt,
+            "trace": sample.trace,
+            "references": sample.references,
+            "reward": sample.reward,
+            "advantage": sample.advantage,
+            "trace_loss": sample.trace_loss,
+            "reference_loss": sample.reference_loss,
         }
         path = Path(self.cfg.sample_log_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(sample) + "\n")
+            handle.write(json.dumps(payload) + "\n")
 
     def _save_checkpoint(self, step: int) -> None:
         if self.cfg.save_steps <= 0 or step == 0 or step % self.cfg.save_steps != 0:
@@ -261,7 +266,10 @@ class MRVFTrainer:
         self.model.save_pretrained(checkpoint_dir)
         self.tokenizer.save_pretrained(checkpoint_dir)
 
-    def _compute_losses_for_batch(self, batch_rows: list[dict[str, Any]]) -> tuple[torch.Tensor, dict[str, float]]:
+    def _compute_losses_for_batch(
+        self,
+        batch_rows: list[dict[str, Any]],
+    ) -> tuple[torch.Tensor, dict[str, float], BatchDebugSample | None]:
         prompts = [row["prompt"] for row in batch_rows]
         references = [row["references"][: self.cfg.num_reference_samples] for row in batch_rows]
         trace_batch = self._generate_trace_batch(prompts, references)
@@ -331,16 +339,18 @@ class MRVFTrainer:
             "kl": float(kl_term.detach().item()),
             "reward_mean": float(rewards_for_adv.mean().item()),
         }
-        self._append_sample_log(
-            step=self._current_step,
-            batch_rows=batch_rows,
-            trace_batch=trace_batch,
-            rewards=rewards_for_adv,
-            advantages=advantages,
-            trace_loss=trace_loss,
-            reference_loss=reference_loss,
-        )
-        return loss, metrics
+        sample: BatchDebugSample | None = None
+        if batch_rows:
+            sample = BatchDebugSample(
+                prompt=batch_rows[0]["prompt"],
+                trace=trace_batch.trace_texts[0] if trace_batch.trace_texts else "",
+                references=trace_batch.references[0] if trace_batch.references else [],
+                reward=float(rewards_for_adv[0].item()) if rewards_for_adv.numel() else 0.0,
+                advantage=float(advantages[0].item()) if advantages.numel() else 0.0,
+                trace_loss=float(trace_loss.detach().item()),
+                reference_loss=float(reference_loss.detach().item()),
+            )
+        return loss, metrics, sample
 
     def train(self, raw_train_dataset: Dataset, raw_eval_dataset: Dataset) -> dict[str, Any]:
         train_dataset = prepare_mrvf_dataset(raw_train_dataset, max_reference_samples=self.cfg.num_reference_samples)
@@ -357,6 +367,7 @@ class MRVFTrainer:
         micro_step = 0
         history: list[dict[str, float]] = []
         self._current_step = 0
+        pending_sample: BatchDebugSample | None = None
 
         while global_step < self.cfg.max_steps:
             self.random.shuffle(train_rows)
@@ -364,9 +375,10 @@ class MRVFTrainer:
                 batch = train_rows[start : start + batch_size]
                 if not batch:
                     continue
-                loss, metrics = self._compute_losses_for_batch(batch)
+                loss, metrics, sample = self._compute_losses_for_batch(batch)
                 (loss / accum).backward()
                 history.append(metrics)
+                pending_sample = sample
                 micro_step += 1
                 if micro_step % accum == 0:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.max_grad_norm)
@@ -376,6 +388,7 @@ class MRVFTrainer:
                     global_step += 1
                     self._current_step = global_step
                     self._save_checkpoint(global_step)
+                    self._append_sample_log(step=global_step, sample=pending_sample)
                     if global_step >= self.cfg.max_steps:
                         break
 
@@ -387,6 +400,7 @@ class MRVFTrainer:
                 global_step += 1
                 self._current_step = global_step
                 self._save_checkpoint(global_step)
+                self._append_sample_log(step=global_step, sample=pending_sample)
 
         self.model.save_pretrained(self.cfg.output_dir)
         self.tokenizer.save_pretrained(self.cfg.output_dir)
