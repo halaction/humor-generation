@@ -3,6 +3,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, cast
 
+import numpy as np
 import pyarrow as pa
 from datasets import Dataset, load_dataset
 from huggingface_hub import HfApi
@@ -19,6 +20,8 @@ from src.settings import settings
 
 logger = get_logger(__name__)
 
+_EMBEDDING_VALUE_LIMIT = 1_000_000.0
+
 
 class EmbeddingsPipeline(BasePipeline):
     def __init__(
@@ -29,6 +32,7 @@ class EmbeddingsPipeline(BasePipeline):
     ) -> None:
         self.config = pipeline_config or config.embeddings
         self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
+        self._owns_client = client is None
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
@@ -65,9 +69,16 @@ class EmbeddingsPipeline(BasePipeline):
                         dimensions=self.config.dimensions,
                     )
 
+                    embeddings = []
+                    for item in response.data:
+                        embedding = np.asarray(item.embedding, dtype=np.float32)
+                        np.nan_to_num(embedding, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                        np.clip(embedding, -_EMBEDDING_VALUE_LIMIT, _EMBEDDING_VALUE_LIMIT, out=embedding)
+                        embeddings.append(embedding.tolist())
+
                     outputs = EmbeddingsOutputs(
                         id=filtered_ids,
-                        embedding=[item.embedding for item in response.data],
+                        embedding=embeddings,
                     )
                 except Exception:
                     if attempt >= self.config.max_retries:
@@ -96,42 +107,45 @@ class EmbeddingsPipeline(BasePipeline):
         resume: bool = False,
     ) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.next_part_index = self._get_next_part_index()
+        try:
+            self.next_part_index = self._get_next_part_index()
 
-        dataset = self._check_progress(jokes, resume)
+            dataset = self._check_progress(jokes, resume)
 
-        dataset = dataset.batch(self.config.batch_size)
+            dataset = dataset.batch(self.config.batch_size)
 
-        write_buffer: list[EmbeddingsOutputs] = []
-        semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        pending_tasks: set[asyncio.Task[EmbeddingsOutputs | None]] = set()
+            write_buffer: list[EmbeddingsOutputs] = []
+            semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
+            pending_tasks: set[asyncio.Task[EmbeddingsOutputs | None]] = set()
 
-        for batch in tqdm(dataset):
-            batch = cast("dict[str, list[Any]]", batch)
-            inputs = EmbeddingsInputs(id=batch["id"], text=batch["text"])
+            for batch in tqdm(dataset):
+                batch = cast("dict[str, list[Any]]", batch)
+                inputs = EmbeddingsInputs(id=batch["id"], text=batch["text"])
 
-            task = asyncio.create_task(self._embed_jokes(inputs, semaphore))
-            pending_tasks.add(task)
+                task = asyncio.create_task(self._embed_jokes(inputs, semaphore))
+                pending_tasks.add(task)
 
-            if len(pending_tasks) >= self.config.max_parallel_requests:
+                if len(pending_tasks) >= self.config.max_parallel_requests:
+                    await self._wait_one(
+                        pending_tasks=pending_tasks,
+                        write_buffer=write_buffer,
+                    )
+
+            while pending_tasks:
                 await self._wait_one(
                     pending_tasks=pending_tasks,
                     write_buffer=write_buffer,
                 )
 
-        while pending_tasks:
-            await self._wait_one(
-                pending_tasks=pending_tasks,
-                write_buffer=write_buffer,
+            self._flush_buffer(write_buffer)
+
+            logger.info(
+                "run.done",
+                model=self.config.model,
+                output_dir=str(self.output_dir),
             )
-
-        self._flush_buffer(write_buffer)
-
-        logger.info(
-            "run.done",
-            model=self.config.model,
-            output_dir=str(self.output_dir),
-        )
+        finally:
+            await self._close_client()
 
     def build(
         self,

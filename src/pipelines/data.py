@@ -75,12 +75,15 @@ class DataPipeline:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run full data pipeline for finalized training references.")
+    parser.add_argument("--build", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--publish", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--private", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
 
     pipeline = DataPipeline()
-    pipeline.build(resume=False)
+    if args.build:
+        pipeline.build(resume=args.resume)
     if args.publish:
         pipeline.publish(private=args.private)
 
