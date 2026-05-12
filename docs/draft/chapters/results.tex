@@ -1,36 +1,36 @@
-\section{Current results}
+\section{Текущие результаты}
 
-The implemented pipeline already supports corpus collection, embedding generation, keyword extraction, prompt construction, reference retrieval, candidate generation, and pairwise automatic evaluation. The remaining missing stage is the actual reinforcement-learning update loop. For that reason, this section is narrow: it reports the completed data artifacts and states the concrete experimental setting for the first MRVF training runs.
+Реализованный пайплайн уже поддерживает сбор корпуса, генерацию embeddings, извлечение ключевых слов, построение prompts, retrieval референсов, генерацию кандидатов и pairwise automatic evaluation. Оставшийся отсутствующий этап --- собственно reinforcement-learning update loop. Поэтому данный раздел является узким: он описывает завершенные data artifacts и фиксирует конкретный experimental setting для первых MRVF training runs.
 
-The corpus-level result is a merged joke collection of approximately \(664\text{k}\) items. In the final training setup, this full corpus serves as the retrieval pool: all jokes are embedded and indexed, and references for weak prompts are retrieved from this full embedding space. Keyword extraction, however, only needs to be applied to a sufficiently large subset to hit the target sample size. In our case, \(3-5\text{k}\) keyword groups can produce \(10-20\text{k}\) references for training, validation and testing.
+Результат на уровне корпуса --- объединенная коллекция шуток примерно из \(664\text{k}\) объектов. В финальной training setup этот полный корпус служит retrieval pool: все шутки кодируются embeddings и индексируются, а references для weak prompts извлекаются из этого полного embedding space. Однако keyword extraction нужно применять только к достаточно большому подмножеству, чтобы достичь целевого sample size. В нашем случае \(3-5\text{k}\) keyword groups могут дать \(10-20\text{k}\) references для training, validation и testing.
 
-This is all for the preliminary stage. The important result is that the data and the experimental setting are now finalized: the corpus exists, the reference collection is implemented, the methodology is finalized, and the remaining work is confined to the MRVF training loop.
+Для preliminary stage этого достаточно. Важный результат состоит в том, что данные и experimental setting теперь финализированы: корпус существует, reference collection реализована, методология зафиксирована, а оставшаяся работа ограничена MRVF training loop.
 
-\section{Planned training procedure}
+\section{Планируемая процедура обучения}
 
-The repository already implements the full data pipeline in Python using Hugging Face Datasets, parquet artifacts, FAISS-based nearest-neighbor search, and OpenAI-compatible API calls for embedding generation, candidate generation, and automatic evaluation. For the actual training runs, however, the software stack will change slightly.
+Репозиторий уже реализует полный data pipeline на Python с использованием Hugging Face Datasets, parquet artifacts, FAISS-based nearest-neighbor search и OpenAI-compatible API calls для embedding generation, candidate generation и automatic evaluation. Однако для собственно training runs software stack немного изменится.
 
-The planned implementation will use a patched version of \texttt{trl} for optimization and \texttt{vLLM} for generation. \texttt{trl} provides the trainer-side logic for policy optimization, while \texttt{vLLM} will be used both to generate the baseline outputs and to serve rollouts during reinforcement learning. Since MRVF depends on sampling multiple reasoning traces per prompt, rollout throughput matters for efficiency.
+Планируемая реализация будет использовать patched version of \texttt{trl} для optimization и \texttt{vLLM} для generation. \texttt{trl} предоставляет trainer-side logic для policy optimization, тогда как \texttt{vLLM} будет использоваться и для генерации baseline outputs, и для обслуживания rollouts во время reinforcement learning. Поскольку MRVF зависит от sampling нескольких reasoning traces на prompt, rollout throughput важен для эффективности.
 
-The target models are from the Qwen3 family in the \(1.7\text{B}\) and \(4\text{B}\) size range. For each size, the planned baselines are:
+Целевые модели относятся к семейству Qwen3 в диапазоне размеров \(1.7\text{B}\) и \(4\text{B}\). Для каждого размера планируются следующие baselines:
 \begin{enumerate}[leftmargin=1.8em]
-    \item \textbf{Qwen3 Instruct}, baseline in non-thinking mode;
-    \item \textbf{Qwen3 Thinking}, baseline in thinking mode;
-    \item \textbf{MRVF-trained Qwen3 Thinking}, proposed model;
+    \item \textbf{Qwen3 Instruct}, baseline в non-thinking mode;
+    \item \textbf{Qwen3 Thinking}, baseline в thinking mode;
+    \item \textbf{MRVF-trained Qwen3 Thinking}, предлагаемая модель;
 \end{enumerate}
 
-This setup keeps the comparison interpretable. It isolates three distinct questions: whether ordinary instruction tuning is enough for humor generation, whether native thinking mode already improves humor generation without additional training, and whether MRVF can further improve the thinking model.
+Такой сеттинг сохраняет интерпретируемость сравнения. Он изолирует три отдельных вопроса: достаточно ли обычного instruction tuning для генерации юмора; улучшает ли native thinking mode генерацию юмора уже без дополнительного обучения; и может ли MRVF дополнительно улучшить thinking model.
 
-All training runs are planned for 1-2 \texttt{NVIDIA H200} GPUs on the HSE HPC cluster. This is sufficient for the intended model sizes and allows for parallelization accross instances.
+Все training runs планируются на 1--2 \texttt{NVIDIA H200} GPUs в HSE HPC cluster. Этого достаточно для целевых размеров моделей и позволяет распараллеливать эксперименты между instances.
 
-The comparison will use the evaluation pipeline that is already implemented in the repository. Outputs are paired for the same prompt, the left/right order is randomized, the judge is forced to choose exactly one winner, and model scores are aggregated with a Bradley-Terry leaderboard. This is sufficient for the experiment because the goal is to detect whether MRVF produces a measurable shift relative to the instruct and thinking baselines. A larger multidimensional evaluation with rubric-based scoring and human annotation is planned after training is completed.
+Сравнение будет использовать evaluation pipeline, уже реализованный в репозитории. Outputs сопоставляются для одного prompt, left/right order рандомизируется, judge принуждается выбрать ровно одного winner, а model scores агрегируются через Bradley-Terry leaderboard. Этого достаточно для эксперимента, поскольку цель состоит в обнаружении того, дает ли MRVF измеримый сдвиг относительно instruct и thinking baselines. Более крупная multidimensional evaluation с rubric-based scoring и human annotation планируется после завершения обучения.
 
-\section{Planned ablations}
+\section{Планируемые ablations}
 
-The ablation plan is directly connected to the theory. The most informative ablations are the following:
+Ablation plan напрямую связан с теорией. Наиболее информативные ablations следующие:
 \begin{itemize}[leftmargin=1.5em]
-    \item \textbf{Number of observed references per prompt \(|Y^{*}|\).} Compare smaller and larger reference sets, for example by truncating retrieval to \(1\), \(3\), or \(5\) items.
-    \item \textbf{KL coefficient \(\beta\).} Test how strongly the model must be anchored to the initialization checkpoint in order to fix incompleteness.
-    \item \textbf{Group size \(G\).} Vary the number of sampled reasoning traces per prompt in order to assess the variance / throughput trade-off of the MRVF estimator.
-    \item \textbf{Model size.} Compare \(1.7\text{B}\) versus \(4\text{B}\), and check whether MRVF is robust when applied to smaller models.
+    \item \textbf{Число наблюдаемых референсов на prompt \(|Y^{*}|\).} Сравнить меньшие и большие reference sets, например через truncating retrieval до \(1\), \(3\) или \(5\) объектов.
+    \item \textbf{KL coefficient \(\beta\).} Проверить, насколько сильно модель должна быть anchored to initialization checkpoint, чтобы компенсировать incompleteness.
+    \item \textbf{Group size \(G\).} Варьировать число sampled reasoning traces per prompt, чтобы оценить variance / throughput trade-off MRVF estimator.
+    \item \textbf{Model size.} Сравнить \(1.7\text{B}\) и \(4\text{B}\), а также проверить, насколько MRVF устойчив при применении к меньшим моделям.
 \end{itemize}

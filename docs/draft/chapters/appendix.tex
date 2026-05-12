@@ -1,21 +1,20 @@
+\chapter{Реализованные шаблоны prompts}
 
-\chapter{Implemented Prompt Templates}
+В этом приложении фиксируются основные шаблоны, уже реализованные в репозитории. Они включены сюда, поскольку задают операциональную форму prompts, используемых на протяжении пилотного эксперимента.
 
-This appendix records the main templates already implemented in the repository. They are included here because they define the operational form of the prompts used throughout the pilot.
+\section{Prompt для генерации референсов}
 
-\section{Reference-generation prompt}
-
-The prompt used for reference retrieval and candidate generation is:
+Prompt, используемый для reference retrieval и candidate generation:
 \begin{quote}
     \ttfamily
     Write a joke using the following keyword(s): \{keywords\}
 \end{quote}
 
-Its main advantage is consistency. The same textual form is used for retrieval-time prompt embedding and for later candidate generation, which reduces mismatch between dataset construction and evaluation. Its main disadvantage is that it is intentionally generic and therefore does not encode humor theory or audience information.
+Его главное преимущество --- согласованность. Одна и та же текстовая форма используется для embedding prompt во время retrieval и для последующей candidate generation, что уменьшает mismatch между construction dataset и evaluation. Главный недостаток состоит в том, что шаблон намеренно generic и поэтому не кодирует ни теорию юмора, ни информацию об аудитории.
 
-\section{Embedding query instructions}
+\section{Инструкции для embedding queries}
 
-Two short instruction templates are used to adapt the embedding model to retrieval subtasks:
+Для адаптации embedding model к retrieval subtasks используются два коротких instruction templates:
 \begin{quote}
     \ttfamily
     Instruct: Given a keyword for a joke, retrieve jokes would match the keyword.\\
@@ -28,22 +27,22 @@ Two short instruction templates are used to adapt the embedding model to retriev
     Query: \{prompt\}
 \end{quote}
 
-These templates are important because the pilot does not use raw keyword strings as embeddings directly. It embeds them inside retrieval-oriented instructions, which makes the semantic intent of the vector space more task-specific.
+Эти шаблоны важны, потому что pilot не использует raw keyword strings как embeddings напрямую. Он кодирует их внутри retrieval-oriented instructions, что делает semantic intent vector space более task-specific.
 
 \section{Evaluation prompt}
 
-The pairwise evaluation system prompt asks the judge to compare two jokes written for the same prompt and choose exactly one winner. The instruction explicitly discourages rewarding length or polish when these do not improve humor. This design is intentionally simple and should be viewed as a baseline evaluation protocol rather than a final human-aligned rubric.
+System prompt для pairwise evaluation просит judge сравнить две шутки, написанные для одного prompt, и выбрать ровно одного winner. Инструкция явно не поощряет вознаграждать length или polish, если они не улучшают юмор. Такой дизайн намеренно прост и должен рассматриваться как baseline evaluation protocol, а не как финальная human-aligned rubric.
 
-\chapter{Supplementary Notes on the Software Architecture}
+\chapter{Дополнительные замечания о программной архитектуре}
 
-The repository is organized as a set of asynchronous pipelines:
+Репозиторий организован как набор asynchronous pipelines:
 \begin{itemize}
-    \item \texttt{JokesPipeline}: downloads and preprocesses raw corpora;
-    \item \texttt{EmbeddingsPipeline}: computes dense joke embeddings;
-    \item \texttt{KeywordsPipeline}: extracts salient keywords by similarity and MMR;
-    \item \texttt{ReferencesPipeline}: builds prompt-reference datasets through vector retrieval;
-    \item \texttt{CandidatesPipeline}: generates jokes from prompts;
-    \item \texttt{EvaluationPipeline}: performs pairwise judging and leaderboard aggregation.
+    \item \texttt{JokesPipeline}: скачивает и предобрабатывает raw corpora;
+    \item \texttt{EmbeddingsPipeline}: вычисляет dense joke embeddings;
+    \item \texttt{KeywordsPipeline}: извлекает salient keywords через similarity и MMR;
+    \item \texttt{ReferencesPipeline}: строит prompt-reference datasets через vector retrieval;
+    \item \texttt{CandidatesPipeline}: генерирует шутки по prompts;
+    \item \texttt{EvaluationPipeline}: выполняет pairwise judging и leaderboard aggregation.
 \end{itemize}
 
-This architecture matters for the final thesis because it separates data construction from model comparison. As a result, the later MRVF training stage can be added without rewriting the rest of the infrastructure. The missing component is precisely the one that now becomes the main target of future work: a training pipeline that consumes the constructed prompt-reference dataset and optimizes the formal objective introduced in Chapter 2.
+Эта архитектура важна для финального диплома, потому что она отделяет data construction от model comparison. В результате последующий MRVF training stage можно добавить без переписывания остальной инфраструктуры. Отсутствующий компонент --- именно тот, который теперь становится основной целью future work: training pipeline, который потребляет построенный prompt-reference dataset и оптимизирует формальную objective, введенную в Chapter 2.

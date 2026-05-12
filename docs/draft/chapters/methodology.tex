@@ -1,66 +1,66 @@
-\section{Research scope and implementation status}
+\section{Границы исследования и статус реализации}
 
-The methodology of this preliminary thesis has two layers. The first layer is an implemented data and evaluation pipeline, already present in the repository. The second layer is a proposed training objective, namely multi-reference verifier-free (MRVF) reinforcement learning, which is formulated mathematically but not yet fully implemented in code. This distinction is important for the scope of the present work. The repository already contains pipelines for corpus construction, embedding generation, keyword extraction, reference retrieval, candidate generation, and automatic pairwise evaluation. However, the training stage itself remains future work. Consequently, this chapter distinguishes between what is currently operational in the codebase and what is proposed as the next stage of the project.
+Методология данной предварительной дипломной работы имеет два уровня. Первый уровень --- реализованный пайплайн данных и оценки, уже присутствующий в репозитории. Второй уровень --- предлагаемая обучающая цель, а именно multi-reference verifier-free (MRVF) reinforcement learning, которая математически сформулирована, но еще не полностью реализована в коде. Это различие важно для границ настоящей работы. Репозиторий уже содержит пайплайны для построения корпуса, генерации embeddings, извлечения ключевых слов, retrieval референсов, генерации кандидатов и автоматической pairwise evaluation. Однако сам этап обучения остается будущей работой. Поэтому данная глава различает то, что уже операционально в кодовой базе, и то, что предлагается как следующий этап проекта.
 
-At a high level, the implemented system constructs a weakly supervised multi-reference dataset from raw joke datasets. Jokes are first merged into a unified corpus, embedded with a dense retrieval model, and reduced to a small set of keywords with an emb. These keywords are then expanded into n-gram prompt groups, which are then used to retrieve semantically related jokes from the embedding index. The resulting references supports two immediate uses. First, it provides data for baseline generation and automatic evaluation. Second, it defines training and validation sets required by the proposed MRVF training objective.
+На высоком уровне реализованная система строит weakly supervised multi-reference датасет из сырых датасетов шуток. Сначала шутки объединяются в единый корпус, затем кодируются dense retrieval моделью и сводятся к небольшому набору ключевых слов. Эти ключевые слова расширяются в n-gram prompt groups, которые затем используются для retrieval семантически близких шуток из embedding index. Полученные референсы имеют два непосредственных применения. Во-первых, они дают данные для baseline generation и автоматической оценки. Во-вторых, они задают training и validation sets, необходимые для предлагаемой MRVF training objective.
 
-\section{Dataset construction}
+\section{Построение датасета}
 
-Dataset is merged from two public joke collections: the Short Jokes dataset and the rJokes dataset. In the repository, this stage is implemented in \texttt{src/pipelines/jokes.py}. The pipeline downloads the raw files from pinned source revisions, converts them into parquet format, and preserves source metadata for each joke. For every row, the stored fields are \texttt{id}, \texttt{text}, \texttt{source\_name}, \texttt{source\_filename}, and \texttt{source\_id}. After preprocessing the two corpora separately, they are concatenated and assigned a new global integer identifier. The final dataset consists of approximately \(664\,\text{k}\) items
+Датасет объединяется из двух публичных коллекций шуток: Short Jokes dataset и rJokes dataset. В репозитории этот этап реализован в \texttt{src/pipelines/jokes.py}. Пайплайн скачивает сырые файлы из зафиксированных revisions источников, преобразует их в parquet формат и сохраняет metadata источника для каждой шутки. Для каждой строки сохраняются поля \texttt{id}, \texttt{text}, \texttt{source\_name}, \texttt{source\_filename} и \texttt{source\_id}. После отдельной предобработки двух корпусов они конкатенируются и получают новый глобальный целочисленный идентификатор. Итоговый датасет содержит примерно \(664\,\text{k}\) объектов.
 
-This design is intentionally conservative. The pipeline does not perform aggressive text normalization beyond removing empty entries and standardizing storage format. For humor, such caution is desirable, because seemingly minor textual details, such as punctuation, wording, or line breaks may contribute to comedic effect. Retaining source metadata is also useful for later analysis of domain differences, duplicate detection, and possible source-specific biases.
+Такой дизайн намеренно является консервативным. Пайплайн не выполняет агрессивную нормализацию текста, кроме удаления пустых записей и стандартизации формата хранения. Для юмора такая осторожность желательна, поскольку кажущиеся мелкими текстовыми детали, такие как пунктуация, формулировка или переносы строк, могут влиять на комический эффект. Сохранение source metadata также полезно для последующего анализа доменных различий, поиска дубликатов и возможных source-specific biases.
 
 \section{Dense embedding index}
 
-The next stage embeds each joke in a dense semantic vector space. This is implemented in \texttt{src/pipelines/embeddings.py}. The current default configuration uses the model \texttt{Qwen3-Embedding-8B} with embedding dimensionality 1024, reduced from the original size of 4096 with Matryoshka Representation Learning. Embeddings are computed asynchronously in batches, written to parquet shards, and stored as pairs \((i, e_i)\), where \(i\) is the global joke identifier and \(e_i \in \mathbb{R}^{1024}\) is the corresponding embedding.
+Следующий этап кодирует каждую шутку в плотном семантическом векторном пространстве. Он реализован в \texttt{src/pipelines/embeddings.py}. Текущая default configuration использует модель \texttt{Qwen3-Embedding-8B} с размерностью embedding 1024, уменьшенной с исходных 4096 с помощью Matryoshka Representation Learning. Embeddings вычисляются асинхронно батчами, записываются в parquet shards и хранятся как пары \((i, e_i)\), где \(i\) --- глобальный идентификатор шутки, а \(e_i \in \mathbb{R}^{1024}\) --- соответствующий embedding.
 
-The role of this stage is twofold. First, the joke embeddings are later used to score candidate keywords by semantic relevance. Second, they define the vector index used for retrieving multi-reference joke sets. In other words, the embedding space is the shared representation on which both keyword extraction and reference retrieval depend.
+Роль этого этапа двоякая. Во-первых, embeddings шуток затем используются для скоринга candidate keywords по семантической релевантности. Во-вторых, они задают vector index, используемый для retrieval multi-reference joke sets. Иными словами, embedding space является общим представлением, от которого зависят и keyword extraction, и reference retrieval.
 
-\section{Keyword extraction as weak prompt retrieval}
+\section{Извлечение ключевых слов как weak prompt retrieval}
 
-Each joke is assumed to have a set of weak prompts that it plausibly answers. For example, ``write a joke about a chicken'' is considered a viable prompt for ``why did the chicken crossed the road'' joke. Keyword extraction stage is aimed at constructing weak prompts based on the keywords of jokes. This stage is implemented in \texttt{src/pipelines/keywords.py}.
+Предполагается, что каждая шутка имеет набор weak prompts, на которые она правдоподобно отвечает. Например, ``write a joke about a chicken'' рассматривается как допустимый prompt для шутки ``why did the chicken crossed the road''. Этап keyword extraction направлен на построение weak prompts на основе ключевых слов шуток. Он реализован в \texttt{src/pipelines/keywords.py}.
 
-For each joke \(y_i\), the pipeline first generates a candidate pool of n-grams with a \texttt{CountVectorizer} analyzer. Under the default configuration, this analyzer uses unigrams only, removes English stopwords, and keeps at most 64 candidate terms per joke. Let the resulting candidate set be
+Для каждой шутки \(y_i\) пайплайн сначала генерирует пул candidate n-grams с помощью analyzer \texttt{CountVectorizer}. В default configuration этот analyzer использует только unigrams, удаляет английские stopwords и оставляет не более 64 candidate terms на шутку. Пусть полученный candidate set равен
 \[
     C(y_i)=\{c_{i1},\dots,c_{im}\}.
 \]
-Each candidate term is then embedded with the same embedding model used for jokes. If \(e(y_i)\) denotes the joke embedding and \(e(c)\) denotes the embedding of a candidate keyword, the relevance score is computed by cosine similarity:
+Затем каждый candidate term кодируется той же embedding model, что и шутки. Если \(e(y_i)\) обозначает embedding шутки, а \(e(c)\) обозначает embedding candidate keyword, то relevance score вычисляется через cosine similarity:
 \[
     s(c,y_i)=\frac{e(c)^\top e(y_i)}{\lVert e(c)\rVert\,\lVert e(y_i)\rVert}.
 \]
 
-Selecting only the most similar candidates would often yield redundant keywords. To reduce redundancy, the pipeline applies maximal marginal relevance (MMR), choosing multiple keywords while balancing relevance against diversity. Under the default configuration, the diversity coefficient is 0.7 and the number of retained keywords is \(3\). The output of this stage is therefore a compact keyword representation
+Выбор только наиболее похожих candidates часто давал бы избыточные ключевые слова. Для уменьшения redundancy пайплайн применяет maximal marginal relevance (MMR), выбирая несколько ключевых слов с балансом между relevance и diversity. В default configuration diversity coefficient равен 0.7, а число сохраняемых keywords равно \(3\). Поэтому выход этого этапа --- компактное keyword representation
 \[
     K(y_i)=\{k_{i1},k_{i2},k_{i3}\},
 \]
-possibly with fewer than three items when the candidate pool is small.
+возможно содержащее меньше трех элементов, если candidate pool мал.
 
-Methodologically, these keywords should not be interpreted as full latent prompts. They are weaker objects, n-grams that capture topical or lexical anchors of the joke. This is a pragmatic approximation. It does not solve the joke-to-prompt inversion in a complete sense, but it yields a tractable representation from which multiple prompt options can be constructed.
+Методологически эти ключевые слова не следует интерпретировать как полноценные латентные prompts. Это более слабые объекты: n-grams, которые захватывают тематические или лексические якоря шутки. Это прагматическое приближение. Оно не решает joke-to-prompt inversion полностью, но дает удобное представление, из которого можно построить несколько prompt options.
 
-\section{Reference construction by keyword grouping and retrieval}
+\section{Построение референсов через группировку ключевых слов и retrieval}
 
-\subsection{Keyword grouping and prompt rendering}
+\subsection{Группировка ключевых слов и рендеринг prompts}
 
-The reference construction stage is implemented in \texttt{src/pipelines/references.py}. For each joke keyword set \(K(y_i)\), the pipeline enumerates all unique keyword combinations whose size lies between \texttt{min\_keywords} and \texttt{max\_keywords}. Under the default configuration, these values are 1 and 2, so the pipeline constructs all one-keyword and two-keyword groups. If
+Этап reference construction реализован в \texttt{src/pipelines/references.py}. Для каждого keyword set \(K(y_i)\) пайплайн перечисляет все уникальные комбинации keywords, размер которых лежит между \texttt{min\_keywords} и \texttt{max\_keywords}. В default configuration эти значения равны 1 и 2, поэтому пайплайн строит все однословные и двухсловные группы. Если
 \[
     K(y_i)=\{k_1,k_2,k_3\},
 \]
-then the generated groups are
+то generated groups равны
 \[
     \{k_1\},\ \{k_2\},\ \{k_3\},\ \{k_1,k_2\},\ \{k_1,k_3\},\ \{k_2,k_3\}.
 \]
-Each group is rendered into a natural language prompt using the template
+Каждая группа преобразуется в natural language prompt с помощью шаблона
 \begin{quote}
     \ttfamily
     Write a joke using the following keyword(s): \{keywords\}
 \end{quote}
-This prompt serves two purposes: it is the textual form later given to generation models, and it is also the object embedded as a query for reference retrieval.
+Этот prompt служит двум целям: это текстовая форма, которая затем подается generation models, и это же объект, который кодируется как query для reference retrieval.
 
-This design creates a controlled but diverse spectrum of prompts. Single keyword prompts are broad, topical and often admit many possible jokes. Two keyword prompts are more constrained and tend to retrieve more precise candidates. The present implementation stops at two keywords because larger groups would quickly become too specific, reducing the number of plausible distinct references per prompt.
+Такой дизайн создает контролируемый, но разнообразный спектр prompts. Single keyword prompts являются широкими, тематическими и часто допускают много возможных шуток. Two keyword prompts более ограничены и обычно извлекают более точные candidates. Текущая реализация останавливается на двух keywords, потому что более крупные группы быстро становятся слишком специфичными, уменьшая число правдоподобных различных референсов на prompt.
 
-\subsection{Reference retrieval with embedding index}
+\subsection{Reference retrieval с embedding index}
 
-Once prompt strings are formed, the pipeline embeds them as queries and retrieves nearby jokes from a FAISS index built over the full joke-embedding collection. The retrieval index is an inverted file index (IVF). Before indexing and search, vectors are normalized, so that inner product corresponds to cosine similarity. Under the default configuration, the main parameters are:
+После формирования prompt strings пайплайн кодирует их как queries и извлекает близкие шутки из FAISS index, построенного по полной коллекции joke embeddings. Retrieval index является inverted file index (IVF). Перед indexing и search векторы нормализуются, так что inner product соответствует cosine similarity. В default configuration основные параметры таковы:
 \begin{itemize}
     \item embedding model: \texttt{Qwen3-Embedding-8B};
     \item dimensionality: 1024;
@@ -71,96 +71,96 @@ Once prompt strings are formed, the pipeline embeds them as queries and retrieve
     \item \texttt{min\_similarity}: 0.5.
 \end{itemize}
 
-For a rendered prompt \(x\), let \(q(x)\) be its normalized embedding and let \(e_j\) be the normalized embedding of joke \(y_j\). The retrieval score is then
+Для rendered prompt \(x\) пусть \(q(x)\) --- его normalized embedding, а \(e_j\) --- normalized embedding шутки \(y_j\). Тогда retrieval score равен
 \[
     s(x,y_j)=q(x)^\top e_j.
 \]
-The search procedure retrieves more than \(k\) candidates, filters out those whose similarity falls below the threshold, and retains the top \(k\) remaining items. The corresponding texts are then used as the observed reference set:
+Процедура поиска извлекает больше чем \(k\) candidates, фильтрует те, чья similarity ниже threshold, и оставляет top \(k\) remaining items. Соответствующие тексты затем используются как observed reference set:
 \[
     Y^{*}(x)=\{y_1,\dots,y_n\}, \qquad n \le 5.
 \]
 
-Note that in practice reference retrieval produces around \(4\) references per keyword group after deduplication and splitting. The target sample size for training is \(10-20\text{k}\) references, hence generating \(3-5\text{k}\) keyword groups is enough.
+На практике reference retrieval дает около \(4\) референсов на keyword group после deduplication и splitting. Target sample size для обучения равен \(10-20\text{k}\) references, поэтому достаточно сгенерировать \(3-5\text{k}\) keyword groups.
 
-This stage implements the central point of the thesis: a prompt associated with multiple candidate joke references rather than with a single ground truth. Importantly, the retrieved set is not an exhaustively annotated set of all good jokes for \(x\). It is a retrieved approximation of that set. This matters both empirically and theoretically. Empirically, retrieved references may contain noise or omit valid alternatives. Theoretically, the incompleteness of \(Y^{*}(x)\) becomes a core part of the later MRVF analysis rather than a secondary inconvenience.
+Этот этап реализует центральную идею работы: prompt связывается с несколькими candidate joke references, а не с одним ground truth. Важно, что retrieved set не является исчерпывающе размеченным множеством всех хороших шуток для \(x\). Это retrieved approximation такого множества. Это существенно и эмпирически, и теоретически. Эмпирически retrieved references могут содержать шум или пропускать валидные альтернативы. Теоретически неполнота \(Y^{*}(x)\) становится ключевой частью дальнейшего анализа MRVF, а не второстепенным неудобством.
 
-\subsection{Deduplication and splitting}
+\subsection{Deduplication и splitting}
 
-After retrieval, the resulting dataset contains rows of the form
+После retrieval итоговый датасет содержит строки вида
 \[
     (x_i, Y^{*}(x_i), S(x_i)),
 \]
-where \(x_i\) is the keyword-based prompt, \(Y^{*}(x_i)\) is the retrieved reference set, and \(S(x_i)\) is the vector of retrieval scores. Different source jokes can generate identical keyword groups, so the repository deduplicates the dataset by the \texttt{keywords} field, keeps the first occurrence, and reassigns row identifiers.
+где \(x_i\) --- keyword-based prompt, \(Y^{*}(x_i)\) --- retrieved reference set, а \(S(x_i)\) --- vector of retrieval scores. Разные source jokes могут генерировать одинаковые keyword groups, поэтому репозиторий дедуплицирует датасет по полю \texttt{keywords}, сохраняет первое occurrence и заново назначает row identifiers.
 
-The deduplicated dataset is then split into train, validation, and test partitions. The current implementation uses a two-stage random split with \texttt{test\_fraction}=0.1, \texttt{validation\_fraction}=0.1, and a fixed random seed. Separate parquet shards are written for the full dataset and for each split.
+Дедуплицированный датасет затем разбивается на train, validation и test partitions. Текущая реализация использует two-stage random split с \texttt{test\_fraction}=0.1, \texttt{validation\_fraction}=0.1 и fixed random seed. Отдельные parquet shards записываются для полного датасета и для каждого split.
 
-\section{Candidate generation}
+\section{Генерация кандидатов}
 
-This stage supports candidate generation over the reference dataset and is implemented in \texttt{src/pipelines/candidates.py}. For a selected model and dataset split, the pipeline iterates over the prompt rows and generates one candidate joke using an OpenAI-compatible Chat Completion API. The generation prompt is the same prompt template used in reference construction:
+Этот этап поддерживает candidate generation поверх reference dataset и реализован в \texttt{src/pipelines/candidates.py}. Для выбранной модели и split датасета пайплайн проходит по prompts и вызывает OpenAI-compatible chat completion endpoint. Используется тот же prompt template, что и при построении референсов:
 \begin{quote}
     \ttfamily
     Write a joke using the following keyword(s): \{keywords\}
 \end{quote}
-Under the default configuration, candidate generation uses temperature \(1.0\) and allows up to 128 completion tokens. It is important keep the jokes short to simplify evaluation for both LLM-as-a-judge and human settings.
+В default configuration candidate generation использует temperature \(1.0\) и допускает до 128 completion tokens. Важно сохранять шутки короткими, чтобы упростить evaluation как в LLM-as-a-judge, так и в human settings.
 
-The output schema contains four fields: row identifier, keyword group, model name, and generated text. Candidate files are stored under a per-model, per-split directory structure. This organization is important for later evaluation, because it allows outputs from several models to be aligned by the same underlying identifier and prompt.
+Output schema содержит четыре поля: row identifier, keyword group, model name и generated text. Candidate files сохраняются в directory structure по model и split. Такая организация важна для последующей evaluation, поскольку позволяет выравнивать outputs нескольких моделей по одному underlying identifier и prompt.
 
-Methodologically, this candidate stage should be understood as a benchmarking layer. It provides the artifacts needed to compare baseline models (pre-trained base, instruct and thinking versions) and future trained checkpoints.
+Методологически этот candidate stage следует понимать как benchmarking layer. Он создает artifacts, необходимые для сравнения baseline models: pre-trained base, instruct и thinking versions, а также будущих trained checkpoints.
 
-\section{Candidate evaluation}
+\section{Оценка кандидатов}
 
 \subsection{Pairwise comparison}
 
-Automatic evaluation is implemented in \texttt{src/pipelines/evaluation.py}. The pipeline first concatenates candidate datasets from multiple models. It then groups candidates by reference identifier and model name, and constructs pairwise comparisons across all model pairs that produced outputs for the same prompt. Left-right ordering is randomized with a fixed seed in order to reduce position bias.
+Автоматическая evaluation реализована в \texttt{src/pipelines/evaluation.py}. Пайплайн сначала конкатенирует candidate datasets от нескольких моделей. Затем он группирует candidates по reference identifier и model name и строит pairwise comparisons для всех пар моделей, которые произвели outputs для одного prompt. Left-right ordering рандомизируется с fixed seed, чтобы уменьшить position bias.
 
-The evaluation prompt is deliberately simple, it contains the shared joke prompt together with a left and a right candidate. The system instruction tells the annotator to act as an judge of humor quality, choose which joke is funnier for a general audience, avoid ties, and return strict JSON. Under the default configuration, the judge model runs at temperature \(0\).
+Evaluation prompt намеренно прост: он содержит общий joke prompt, а также left и right candidate. System instruction просит annotator действовать как judge of humor quality, выбрать, какая шутка смешнее для general audience, избегать ties и возвращать strict JSON. В default configuration judge model работает при temperature \(0\).
 
-This evaluation layer captures only comparative funniness under a shared prompt. It does not yet implement the multidimensional evaluation discussed in the literature review, such as separate rubric-based judgments for prompt adherence, novelty, human-likeness, and funniness, nor does it yet include human annotation. These stages are future work as they depend on the complete training procedure.
+Этот evaluation layer захватывает только comparative funniness при общем prompt. Он пока не реализует multidimensional evaluation, обсуждаемую в обзоре литературы: отдельные rubric-based judgments для prompt adherence, novelty, human-likeness и funniness; также он пока не включает human annotation. Эти этапы остаются future work, поскольку зависят от завершенной training procedure.
 
 \subsection{Leaderboard aggregation}
 
-Pairwise judgments are aggregated into a leaderboard with wins, losses, number of comparisons, win rate, and Bradley-Terry scores. Let \(\mathcal{M}\) denote the set of evaluated models. For every judged pair \((m_a,m_b)\), the evaluator records a binary win for one side. The pipeline then estimates Bradley-Terry strengths and reports their logarithms as \texttt{bt\_score} values.
+Pairwise judgments агрегируются в leaderboard с wins, losses, числом comparisons, win rate и Bradley-Terry scores. Пусть \(\mathcal{M}\) обозначает множество evaluated models. Для каждой judged pair \((m_a,m_b)\) evaluator записывает binary win для одной стороны. Затем пайплайн оценивает Bradley-Terry strengths и сообщает их логарифмы как значения \texttt{bt\_score}.
 
-This aggregation is a sensible choice for humor because relative judgments are often more stable than absolute scores. Asking a judge to decide which of two jokes is funnier is usually easier than asking for a well-calibrated numerical rating. At the same time, this procedure inherits the limitations of the judge model. Since humor judgments by language models can diverge from human judgments, the current leaderboard should be interpreted as a fast and cheap proxy used for intermediate validation rather than as a definitive measure of humor quality.
+Такая агрегация разумна для юмора, потому что relative judgments часто стабильнее absolute scores. Судье обычно легче решить, какая из двух шуток смешнее, чем дать хорошо калиброванную числовую оценку. В то же время эта процедура наследует ограничения judge model. Поскольку humor judgments языковых моделей могут расходиться с человеческими суждениями, текущий leaderboard следует интерпретировать как быстрый и дешевый proxy для intermediate validation, а не как окончательную меру качества юмора.
 
-\section{Theoretical framework for MRVF training}
+\section{Теоретическая рамка MRVF training}
 
-The implemented pipeline above constructs prompt-conditioned reference sets, the present section specifies how such sets would enter a reasoning-oriented reinforcement-learning objective. The central claim is that humor generation is not well matched to the single-reference assumptions used in standard verifier-based or verifier-free reasoning RL. A weak prompt may admit many acceptable jokes, and the repository already makes this concrete by retrieving several references for the same keyword-based prompt. The theory below formalizes how to optimize against such set-valued supervision.
+Реализованный выше пайплайн строит prompt-conditioned reference sets; данный раздел определяет, как такие множества входят в reasoning-oriented reinforcement-learning objective. Центральное утверждение состоит в том, что генерация юмора плохо согласуется с single-reference assumptions, используемыми в стандартном verifier-based или verifier-free reasoning RL. Weak prompt может допускать множество приемлемых шуток, и репозиторий уже делает это конкретным, извлекая несколько референсов для одного keyword-based prompt. Ниже формализуется оптимизация по такой set-valued supervision.
 
-\subsection{Notation}
+\subsection{Обозначения}
 
-Let \(\mathcal{X}\), \(\mathcal{Z}\), and \(\mathcal{Y}\) denote the spaces of prompts, reasoning traces, and final answers, respectively. For a prompt \(x\in\mathcal{X}\),
+Пусть \(\mathcal{X}\), \(\mathcal{Z}\) и \(\mathcal{Y}\) обозначают пространства prompts, reasoning traces и final answers соответственно. Для prompt \(x\in\mathcal{X}\):
 \begin{itemize}
-    \item \(z\in\mathcal{Z}\) denotes a reasoning trace,
-    \item \(y\in\mathcal{Y}\) denotes the final generated joke,
-    \item \(y^{*}\in\mathcal{Y}\) denotes a single reference answer,
-    \item \(Y^{*}(x)\subset\mathcal{Y}\) denotes the \emph{observed} set of acceptable references associated with prompt \(x\),
-    \item \(\pi_{\theta}\) denotes the policy, that is, the conditional probability model over text parameterized by \(\theta\).
+    \item \(z\in\mathcal{Z}\) обозначает reasoning trace,
+    \item \(y\in\mathcal{Y}\) обозначает final generated joke,
+    \item \(y^{*}\in\mathcal{Y}\) обозначает single reference answer,
+    \item \(Y^{*}(x)\subset\mathcal{Y}\) обозначает \emph{observed} set of acceptable references, связанный с prompt \(x\),
+    \item \(\pi_{\theta}\) обозначает policy, то есть условную вероятностную модель над текстом, параметризованную \(\theta\).
 \end{itemize}
 
-More explicitly,
+Более явно,
 \[
     \pi_{\theta}(z,y\mid x)=P_{\theta}(Z=z,Y=y\mid X=x).
 \]
-The policy is factorized as
+Policy факторизуется как
 \[
     \pi_{\theta}(z,y\mid x)=\pi_{\theta}(z\mid x)\,\pi_{\theta}(y\mid x,z).
 \]
-When the model emits explicit reasoning tokens, \(z\) can be identified with the text inside a designated \texttt{<think>} segment and \(y\) with the final answer that follows it. When reasoning is not explicitly exposed in the output stream, the same factorization can still be read as a conceptual decomposition into a sampled intermediate trajectory \(z\) and a final answer conditioned on that trajectory. The advantage of this notation is that it separates two roles of the model: selecting a reasoning path and assigning probability mass to answers given that path.
+Когда модель явно выводит reasoning tokens, \(z\) можно отождествить с текстом внутри специального сегмента \texttt{<think>}, а \(y\) --- с final answer, который следует после него. Когда reasoning явно не экспонируется в output stream, ту же факторизацию можно понимать как концептуальное разложение на sampled intermediate trajectory \(z\) и final answer, conditioned on that trajectory. Преимущество такой нотации в том, что она разделяет две роли модели: выбор reasoning path и распределение probability mass по answers при данном path.
 
-For notational economy, the optimization objective below is written in terms of the observed set \(Y^{*}(x)\). When discussing incompleteness, it will be useful to imagine a larger latent set \(Y_{\mathrm{true}}(x)\supseteq Y^{*}(x)\) containing all genuinely acceptable jokes for prompt \(x\), even though that full set is never observed in practice.
+Для краткости optimization objective ниже записывается через observed set \(Y^{*}(x)\). При обсуждении incompleteness будет полезно представлять более крупное latent set \(Y_{\mathrm{true}}(x)\supseteq Y^{*}(x)\), содержащее все действительно приемлемые шутки для prompt \(x\), хотя это полное множество никогда не наблюдается на практике.
 
-\subsection{RL with verifiable rewards}
+\subsection{RL с верифицируемыми reward}
 
-Reinforcement learning optimizes a policy by maximizing expected reward. Given an objective \(J(\theta)\), training proceeds by stochastic gradient ascent or, equivalently, by gradient descent on the negative objective. The critical design choice is therefore the reward function: it specifies which generations should receive positive signals.
+Reinforcement learning оптимизирует policy, максимизируя expected reward. При заданной objective \(J(\theta)\) обучение идет через stochastic gradient ascent или, эквивалентно, через gradient descent по отрицательной objective. Поэтому критический design choice --- reward function: она определяет, какие generations получают positive signals.
 
-In verifiable domains, reward can be assigned by an external procedure that does not depend on subjective human judgment. For code, a generated program can be executed against a test suite, for mathematics, a final answer can be parsed and compared against a canonical solution. In such cases the event ``the answer is correct'' has an meaning external to the language model itself. Recent reasoning models rely heavily on this structure for training \citep{DeepSeek2025,Lightman2023}.
+В verifiable domains reward может быть назначен внешней процедурой, не зависящей от субъективного человеческого суждения. Для кода сгенерированную программу можно выполнить на test suite; для математики final answer можно распарсить и сравнить с canonical solution. В таких случаях событие ``answer is correct'' имеет смысл, внешний по отношению к самой language model. Современные reasoning models сильно опираются на эту структуру при обучении \citep{DeepSeek2025,Lightman2023}.
 
-Assume first the standard single-reference setting: for each prompt \(x\), there is exactly one verifiable target \(y^{*}\). Define the reward
+Сначала рассмотрим стандартный single-reference setting: для каждого prompt \(x\) существует ровно одна verifiable target \(y^{*}\). Определим reward
 \[
     R(y,y^{*})=\mathbb{I}\{y=y^{*}\},
 \]
-where \(\mathbb{I}\{\cdot\}\) is the indicator function. The objective is then
+где \(\mathbb{I}\{\cdot\}\) --- indicator function. Тогда objective равна
 \[
     J_{\mathrm{RLVR}}(\theta\mid x,y^{*})
     =
@@ -168,7 +168,7 @@ where \(\mathbb{I}\{\cdot\}\) is the indicator function. The objective is then
     \mathbb{E}_{y\sim\pi_{\theta}(y\mid x,z)}
     \big[R(y,y^{*})\big].
 \]
-Equivalently, in expanded summation form,
+Эквивалентно, в expanded summation form,
 \[
     J_{\mathrm{RLVR}}(\theta\mid x,y^{*})
     =
@@ -176,14 +176,14 @@ Equivalently, in expanded summation form,
     \pi_{\theta}(z\mid x)\pi_{\theta}(y\mid x,z)\,R(y,y^{*}).
 \]
 
-To optimize this expectation one uses the score-function identity, also known as the REINFORCE identity:
+Для оптимизации этого expectation используется score-function identity, также известная как REINFORCE identity:
 \[
     \nabla_{\theta}\,\mathbb{E}_{u\sim p_{\theta}(u)}[f(u)]
     =
     \mathbb{E}_{u\sim p_{\theta}(u)}
     \big[f(u)\nabla_{\theta}\log p_{\theta}(u)\big].
 \]
-This identity follows directly from the relation \(\nabla_{\theta}p_{\theta}(u)=p_{\theta}(u)\nabla_{\theta}\log p_{\theta}(u)\). Applying it to the joint distribution of \((z,y)\) yields
+Это тождество следует напрямую из соотношения \(\nabla_{\theta}p_{\theta}(u)=p_{\theta}(u)\nabla_{\theta}\log p_{\theta}(u)\). Применяя его к joint distribution of \((z,y)\), получаем
 \begin{align*}
     \nabla_{\theta}J_{\mathrm{RLVR}}
      & =
@@ -198,13 +198,13 @@ This identity follows directly from the relation \(\nabla_{\theta}p_{\theta}(u)=
         R(y,y^{*})\,\nabla_{\theta}\log\pi_{\theta}(z,y\mid x)
         \Big].
 \end{align*}
-Using the factorization of the joint policy,
+Используя факторизацию joint policy,
 \[
     \log\pi_{\theta}(z,y\mid x)
     =
     \log\pi_{\theta}(z\mid x)+\log\pi_{\theta}(y\mid x,z),
 \]
-hence
+следовательно,
 \[
     \nabla_{\theta}\log\pi_{\theta}(z,y\mid x)
     =
@@ -212,7 +212,7 @@ hence
     +
     \nabla_{\theta}\log\pi_{\theta}(y\mid x,z).
 \]
-Therefore
+Поэтому
 \[
     \nabla_{\theta}J_{\mathrm{RLVR}}
     =
@@ -226,13 +226,13 @@ Therefore
         \Big].
 \]
 
-This expression has a simple interpretation. A sampled pair \((z,y)\) receives reward only when the verifier declares \(y\) correct. When that occurs, the update increases both the probability of the reasoning trace that led to the answer and the probability of the answer itself under that trace
+Это выражение имеет простую интерпретацию. Sampled pair \((z,y)\) получает reward только тогда, когда verifier объявляет \(y\) правильным. Когда это происходит, update увеличивает и probability reasoning trace, приведшего к ответу, и probability самого ответа при этом trace.
 
 \subsection{VeriFree}
 
-Humor does not provide such an external verifier, and more generally many open-ended generation tasks do not admit a deterministic correctness test. VeriFree addresses this gap by observing that in the single-reference case the expected exact-match reward can be rewritten as a conditional probability \citep{Zhou2025}.
+Юмор не предоставляет такого external verifier, и в более общем виде многие open-ended generation tasks не имеют deterministic correctness test. VeriFree закрывает этот разрыв, замечая, что в single-reference case expected exact-match reward можно переписать как conditional probability \citep{Zhou2025}.
 
-Fix \(x\) and \(z\). Then
+Зафиксируем \(x\) и \(z\). Тогда
 \begin{align*}
     \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}
     \big[\mathbb{I}\{y=y^{*}\}\big]
@@ -242,37 +242,37 @@ Fix \(x\) and \(z\). Then
      & =
     \pi_{\theta}(y^{*}\mid x,z).
 \end{align*}
-Substituting this identity back into the RLVR objective gives
+Подставляя это тождество обратно в RLVR objective, получаем
 \[
     J_{\mathrm{RLVR}}(\theta\mid x,y^{*})
     =
     \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
     \big[\pi_{\theta}(y^{*}\mid x,z)\big].
 \]
-This suggests defining the verifier-free reward
+Это мотивирует verifier-free reward
 \[
     r_{\theta}(x,z,y^{*}) := \pi_{\theta}(y^{*}\mid x,z),
 \]
-and the corresponding objective
+и соответствующую objective
 \[
     J_{\mathrm{VF}}(\theta\mid x,y^{*})
     :=
     \mathbb{E}_{z\sim\pi_{\theta}(z\mid x)}
     \big[r_{\theta}(x,z,y^{*})\big].
 \]
-Under the single-reference assumption,
+При single-reference assumption
 \[
     J_{\mathrm{VF}}(\theta\mid x,y^{*}) \equiv J_{\mathrm{RLVR}}(\theta\mid x,y^{*})
 \]
-as scalar objectives. The importance of this reformulation is practical as well as conceptual: no explicit decoding of \(y\) is required for reward computation, and \(\pi_{\theta}(y^{*}\mid x,z)\) can be computed by teacher forcing on the reference sequence, which is conveniently parallelizable.
+как scalar objectives. Значимость такой переформулировки одновременно практическая и концептуальная: для вычисления reward не требуется явное decoding \(y\), а \(\pi_{\theta}(y^{*}\mid x,z)\) можно вычислить teacher forcing на reference sequence, что удобно параллелизуется.
 
-To obtain the policy gradient, write
+Чтобы получить policy gradient, запишем
 \[
     J_{\mathrm{VF}}(\theta\mid x,y^{*})
     =
     \sum_{z\in\mathcal{Z}} \pi_{\theta}(z\mid x)\,r_{\theta}(x,z,y^{*}).
 \]
-Differentiating by the product rule,
+Дифференцируя по product rule,
 \begin{align*}
     \nabla_{\theta}J_{\mathrm{VF}}
      & =
@@ -290,7 +290,7 @@ Differentiating by the product rule,
         \nabla_{\theta}r_{\theta}(x,z,y^{*})
         \Big].
 \end{align*}
-Since \(r_{\theta}(x,z,y^{*})=\pi_{\theta}(y^{*}\mid x,z)\),
+Так как \(r_{\theta}(x,z,y^{*})=\pi_{\theta}(y^{*}\mid x,z)\),
 \[
     \nabla_{\theta}r_{\theta}(x,z,y^{*})
     =
@@ -298,7 +298,7 @@ Since \(r_{\theta}(x,z,y^{*})=\pi_{\theta}(y^{*}\mid x,z)\),
     =
     r_{\theta}(x,z,y^{*})\,\nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z).
 \]
-Hence
+Следовательно,
 \[
     \nabla_{\theta}J_{\mathrm{VF}}
     =
@@ -312,25 +312,25 @@ Hence
         \Big].
 \]
 
-This decomposition is informative. The first term,
+Эта декомпозиция информативна. Первый член,
 \[
     \mathbb{E}_{z}\big[r_{\theta}(x,z,y^{*})\,\nabla_{\theta}\log\pi_{\theta}(z\mid x)\big],
 \]
-is a score-function term over sampled reasoning traces. It assigns higher probability to traces under which the model itself places higher conditional mass on the reference answer. The second term,
+является score-function term по sampled reasoning traces. Он повышает вероятность traces, при которых сама модель назначает более высокую conditional mass reference answer. Второй член,
 \[
     \mathbb{E}_{z}\big[\nabla_{\theta}r_{\theta}(x,z,y^{*})\big],
 \]
-is a direct teacher-forced gradient on the reference sequence. Relative to RLVR, VeriFree removes noise from sampling the final answer \(y\): the estimator still samples \(z\), but not the answer used for reward evaluation. This is precisely why VeriFree is attractive in domains where a verifier is unavailable but a single reference answer exists.
+является direct teacher-forced gradient на reference sequence. По сравнению с RLVR, VeriFree убирает шум от sampling final answer \(y\): estimator все еще samples \(z\), но не answer, используемый для reward evaluation. Именно поэтому VeriFree привлекателен в доменах, где verifier недоступен, но single reference answer существует.
 
 \subsection{Multi-reference VeriFree}
 
-The single-reference assumption is inappropriate for humor. A prompt such as ``write a joke using the keywords cat, dog'' does not have one correct completion, it has many plausible completions differing in setup, punchline mechanism, tone, and level of absurdity. In fact, the implemented repository is explicitly designed to construct several references for the same weak prompt. The reward must therefore be defined on a set of acceptable answers rather than on one.
+Single-reference assumption не подходит для юмора. Prompt вроде ``write a joke using the keywords cat, dog'' не имеет одного правильного completion; он имеет много правдоподобных completions, различающихся setup, punchline mechanism, tone и уровнем абсурдности. Фактически реализованный репозиторий явно предназначен для построения нескольких референсов для одного weak prompt. Поэтому reward должен быть определен на множестве acceptable answers, а не на одном ответе.
 
-Let \(Y^{*}(x)\subset\mathcal{Y}\) denote the observed set of acceptable references for prompt \(x\). Define the multi-reference verified reward
+Пусть \(Y^{*}(x)\subset\mathcal{Y}\) обозначает observed set of acceptable references для prompt \(x\). Определим multi-reference verified reward
 \[
     R(y,Y^{*})=\mathbb{I}\{y\in Y^{*}\}.
 \]
-The corresponding set-valued exact-match objective is
+Соответствующая set-valued exact-match objective равна
 \[
     J_{\mathrm{MR}}(\theta\mid x,Y^{*})
     =
@@ -338,7 +338,7 @@ The corresponding set-valued exact-match objective is
     \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}
     \big[\mathbb{I}\{y\in Y^{*}\}\big].
 \]
-For fixed \(x\) and \(z\),
+Для фиксированных \(x\) и \(z\),
 \begin{align*}
     \mathbb{E}_{y\sim\pi_{\theta}(\cdot\mid x,z)}
     \big[\mathbb{I}\{y\in Y^{*}\}\big]
@@ -349,14 +349,14 @@ For fixed \(x\) and \(z\),
     \sum_{y\in Y^{*}}
     \pi_{\theta}(y\mid x,z).
 \end{align*}
-This motivates the multi-reference verifier-free reward
+Это мотивирует multi-reference verifier-free reward
 \[
     r_{\theta}(x,z,Y^{*})
     :=
     \sum_{y\in Y^{*}}
     \pi_{\theta}(y\mid x,z).
 \]
-The quantity \(r_{\theta}(x,z,Y^{*})\) lies in \([0,1]\): it is the total probability mass that the policy assigns, under reasoning trace \(z\), to the observed reference set. Equivalently, it is the probability of the event that the generated answer falls inside that set. The resulting objective is
+Величина \(r_{\theta}(x,z,Y^{*})\) лежит в \([0,1]\): это total probability mass, которую policy назначает, при reasoning trace \(z\), observed reference set. Эквивалентно, это вероятность события, что generated answer попадает внутрь этого множества. Итоговая objective равна
 \[
     J_{\mathrm{MRVF}}(\theta\mid x,Y^{*})
     =
@@ -364,15 +364,15 @@ The quantity \(r_{\theta}(x,z,Y^{*})\) lies in \([0,1]\): it is the total probab
     \big[r_{\theta}(x,z,Y^{*})\big].
 \]
 
-At the scalar level, MRVF plays the same role for a set-valued reward that VeriFree plays for a single exact-match reward. However, the gradient structure is not merely the single-reference formula with \(y^{*}\) replaced by a set symbol. The answer-side derivative changes in an essential way.
+На scalar level MRVF играет для set-valued reward ту же роль, что VeriFree играет для single exact-match reward. Однако gradient structure не является просто single-reference формулой, где \(y^{*}\) заменено символом множества. Answer-side derivative меняется существенно.
 
-Indeed,
+Действительно,
 \[
     J_{\mathrm{MRVF}}(\theta\mid x,Y^{*})
     =
     \sum_{z}\pi_{\theta}(z\mid x)\,r_{\theta}(x,z,Y^{*}),
 \]
-so
+поэтому
 \begin{align*}
     \nabla_{\theta}J_{\mathrm{MRVF}}
      & =
@@ -390,7 +390,7 @@ so
         \nabla_{\theta}r_{\theta}(x,z,Y^{*})
         \Big].
 \end{align*}
-Now expand the reference-side derivative:
+Теперь раскроем reference-side derivative:
 \begin{align*}
     \nabla_{\theta}r_{\theta}(x,z,Y^{*})
      & =
@@ -403,7 +403,7 @@ Now expand the reference-side derivative:
     \sum_{y\in Y^{*}}
     \pi_{\theta}(y\mid x,z)\,\nabla_{\theta}\log\pi_{\theta}(y\mid x,z).
 \end{align*}
-Therefore,
+Поэтому
 \[
     \nabla_{\theta}J_{\mathrm{MRVF}}
     =
@@ -416,14 +416,14 @@ Therefore,
         \Bigg].
 \]
 
-It is sometimes useful to rewrite the second term in normalized form. Whenever \(r_{\theta}(x,z,Y^{*})>0\), define
+Иногда полезно переписать второй член в нормализованной форме. Если \(r_{\theta}(x,z,Y^{*})>0\), определим
 \[
     w_{\theta}(y\mid x,z,Y^{*})
     :=
     \frac{\pi_{\theta}(y\mid x,z)}{r_{\theta}(x,z,Y^{*})}
     \,\mathbb{I}\{y\in Y^{*}\}.
 \]
-Then \(w_{\theta}(\cdot\mid x,z,Y^{*})\) is a probability distribution over the observed reference set, and
+Тогда \(w_{\theta}(\cdot\mid x,z,Y^{*})\) является probability distribution over observed reference set, и
 \[
     \nabla_{\theta}r_{\theta}(x,z,Y^{*})
     =
@@ -432,7 +432,7 @@ Then \(w_{\theta}(\cdot\mid x,z,Y^{*})\) is a probability distribution over the 
     w_{\theta}(y\mid x,z,Y^{*})
     \nabla_{\theta}\log\pi_{\theta}(y\mid x,z).
 \]
-Equivalently,
+Эквивалентно,
 \[
     \nabla_{\theta}\log r_{\theta}(x,z,Y^{*})
     =
@@ -440,7 +440,7 @@ Equivalently,
     w_{\theta}(y\mid x,z,Y^{*})
     \nabla_{\theta}\log\pi_{\theta}(y\mid x,z),
 \]
-and hence
+и, следовательно,
 \[
     \nabla_{\theta}J_{\mathrm{MRVF}}
     =
@@ -455,27 +455,27 @@ and hence
         \Big].
 \]
 
-This form clarifies the difference from single-reference VeriFree. In VeriFree, the direct term is the gradient of \(\log\pi_{\theta}(y^{*}\mid x,z)\) for one reference. In MRVF, the direct term is the gradient of \(\log \sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z)\). The update therefore does not privilege one reference a priori, it increases total mass on the observed set, with each reference weighted by the current policy mass assigned to it. If one reference already dominates, the gradient concentrates there. If mass is spread across several references, the gradient reinforces them jointly. This is why MRVF is not simply a notational variant of VeriFree: the optimization geometry changes from a single target string to a log-sum over many targets.
+Эта форма проясняет отличие от single-reference VeriFree. В VeriFree direct term --- это gradient \(\log\pi_{\theta}(y^{*}\mid x,z)\) для одного reference. В MRVF direct term --- это gradient \(\log \sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z)\). Поэтому update не отдает априорного предпочтения одному reference; он увеличивает total mass на observed set, причем каждый reference взвешивается текущей policy mass, назначенной ему. Если один reference уже доминирует, gradient концентрируется на нем. Если mass распределена по нескольким references, gradient усиливает их совместно. Поэтому MRVF не является просто нотационным вариантом VeriFree: optimization geometry меняется с одной target string на log-sum по многим targets.
 
-\subsection{Incomplete observed references}
+\subsection{Неполные наблюдаемые референсы}
 
-The observed set \(Y^{*}(x)\) is still not the full set of good jokes. Two distinct forms of incompleteness arise.
+Observed set \(Y^{*}(x)\) все еще не является полным множеством хороших шуток. Возникают две разные формы incompleteness.
 
 \paragraph{Structural incompleteness.}
-Even if the repository retrieves several references for a prompt, there may exist many additional jokes in the latent set \(Y_{\mathrm{true}}(x)\) that are also valid but unobserved. This is unavoidable in creative domains. A finite dataset cannot enumerate all acceptable punchlines for a weak prompt.
+Даже если репозиторий извлекает несколько references для prompt, может существовать много дополнительных шуток в latent set \(Y_{\mathrm{true}}(x)\), которые также валидны, но не наблюдаются. Это неизбежно в creative domains. Конечный датасет не может перечислить все acceptable punchlines для weak prompt.
 
 \paragraph{Computational incompleteness.}
-Even within the observed set \(Y^{*}(x)\), computing
+Даже внутри observed set \(Y^{*}(x)\) вычисление
 \[
     r_{\theta}(x,z,Y^{*})=\sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z)
 \]
-may become expensive when \(|Y^{*}|\) is large. One may therefore evaluate the sum on a sampled subset \(Y\subseteq Y^{*}\).
+может стать дорогим, когда \(|Y^{*}|\) велико. Поэтому сумму можно оценивать на sampled subset \(Y\subseteq Y^{*}\).
 
-Suppose \(Y\) is sampled uniformly without replacement from \(Y^{*}\), and each reference \(y\in Y^{*}\) has inclusion probability
+Предположим, что \(Y\) sampled uniformly without replacement из \(Y^{*}\), и каждый reference \(y\in Y^{*}\) имеет inclusion probability
 \[
     \rho = P(y\in Y)=\frac{|Y|}{|Y^{*}|}.
 \]
-Define the subset reward
+Определим subset reward
 \[
     r_{\theta}(x,z,Y)
     :=
@@ -484,7 +484,7 @@ Define the subset reward
     \sum_{y\in Y^{*}}
     \mathbb{I}\{y\in Y\}\,\pi_{\theta}(y\mid x,z).
 \]
-Taking expectation over the random subset,
+Беря expectation по случайному subset,
 \begin{align*}
     \mathbb{E}_{Y}\big[r_{\theta}(x,z,Y)\big]
      & =
@@ -500,9 +500,9 @@ Taking expectation over the random subset,
      & =
     \rho\,r_{\theta}(x,z,Y^{*}).
 \end{align*}
-Thus the subset reward is proportional in expectation to the full observed-set reward.
+Следовательно, subset reward пропорционален в expectation full observed-set reward.
 
-This is where GRPO baselining becomes relevant. Suppose that for a fixed prompt \(x\) all sampled rewards in a group are multiplied by the same positive factor \(\rho_x\), for example because only a fraction of the observed references is used. If one standardizes rewards within the group,
+Здесь становится релевантным GRPO baselining. Предположим, что для фиксированного prompt \(x\) все sampled rewards в группе умножаются на один и тот же positive factor \(\rho_x\), например потому что используется только доля observed references. Если стандартизовать rewards внутри группы,
 \[
     \widetilde A_i
     =
@@ -510,19 +510,19 @@ This is where GRPO baselining becomes relevant. Suppose that for a fixed prompt 
     \qquad
     \mu_x=\frac{1}{G}\sum_{j=1}^{G}\hat r_j,
 \]
-then multiplying every \(\hat r_i\) by \(\rho_x>0\) multiplies both the numerator and denominator by the same factor, leaving \(\widetilde A_i\) unchanged. This is the sense in which GRPO group standardization is scale-invariant. It mitigates reward-magnitude shifts in the score-function term, although it does not recover information lost through missing references and does not by itself solve the bias of the direct reference gradient.
+то умножение каждого \(\hat r_i\) на \(\rho_x>0\) умножает и numerator, и denominator на один и тот же factor, оставляя \(\widetilde A_i\) неизменным. В этом смысле GRPO group standardization scale-invariant. Она смягчает reward-magnitude shifts в score-function term, хотя не восстанавливает информацию, потерянную из-за missing references, и сама по себе не решает bias direct reference gradient.
 
-Another fundamental issue is the false-negative problem. Optimizing
+Другая фундаментальная проблема --- false-negative problem. Оптимизация
 \[
     r_{\theta}(x,z,Y^{*})=\sum_{y\in Y^{*}}\pi_{\theta}(y\mid x,z)
 \]
-increases probability mass on observed references. Because the conditional distribution over all strings sums to one,
+увеличивает probability mass на observed references. Поскольку conditional distribution по всем строкам суммируется в единицу,
 \[
     \sum_{y\in\mathcal{Y}}\pi_{\theta}(y\mid x,z)=1,
 \]
-that increased mass must come from \(\mathcal{Y}\setminus Y^{*}\). Unfortunately, this complement contains not only bad jokes but also unobserved good jokes from \(Y_{\mathrm{true}}(x)\setminus Y^{*}(x)\). In other words, the training signal can inadvertently suppress valid but unseen humorous continuations. This risk is not a defect of the gradient derivation, it is a structural consequence of learning from incomplete supervision in an intrinsically many-solution domain.
+увеличенная mass должна прийти из \(\mathcal{Y}\setminus Y^{*}\). К сожалению, это complement содержит не только плохие шутки, но и ненаблюдаемые хорошие шутки из \(Y_{\mathrm{true}}(x)\setminus Y^{*}(x)\). Иными словами, training signal может непреднамеренно подавлять валидные, но unseen humorous continuations. Этот риск не является дефектом gradient derivation; он является структурным следствием learning from incomplete supervision в intrinsically many-solution domain.
 
-To reduce this risk, the proposed optimization includes a Kullback-Leibler penalty relative to a reference policy \(\pi_{\mathrm{ref}}\):
+Чтобы уменьшить этот риск, предлагаемая оптимизация включает Kullback-Leibler penalty относительно reference policy \(\pi_{\mathrm{ref}}\):
 \[
     \max_{\theta}
     \;
@@ -535,7 +535,7 @@ To reduce this risk, the proposed optimization includes a Kullback-Leibler penal
         \big)
         \Big].
 \]
-Equivalently, one may view the problem in constrained form,
+Эквивалентно, можно рассматривать задачу в constrained form,
 \[
     \max_{\theta}\;
     \mathbb{E}_{x,z}\big[r_{\theta}(x,z,Y^{*}(x))\big]
@@ -550,15 +550,15 @@ Equivalently, one may view the problem in constrained form,
         \Big]
     \le \varepsilon.
 \]
-In the present context the KL term is not merely generic regularization. Its methodological role is to discourage overly aggressive redistribution of probability mass away from the reference model when the observed reference sets are known to be incomplete.
+В данном контексте KL term не является просто generic regularization. Его методологическая роль --- препятствовать чрезмерно агрессивному перераспределению probability mass от reference model, когда observed reference sets заведомо неполны.
 
-\subsection{Proposed training loop}
+\subsection{Предлагаемый training loop}
 
-The intended training stage samples multiple reasoning traces for the same prompt and uses their rewards to update the reasoning policy. For a prompt \(x\), sample a group
+Предполагаемый training stage samples несколько reasoning traces для одного prompt и использует их rewards для обновления reasoning policy. Для prompt \(x\) sample group
 \[
     z_1,\dots,z_G \sim \pi_{\theta}(z\mid x).
 \]
-For each \(z_i\), compute the multi-reference reward
+Для каждого \(z_i\) вычисляется multi-reference reward
 \[
     \hat r_i
     :=
@@ -567,9 +567,9 @@ For each \(z_i\), compute the multi-reference reward
     \sum_{y\in Y^{*}(x)}
     \pi_{\theta}(y\mid x,z_i).
 \]
-In practice, each \(\pi_{\theta}(y\mid x,z_i)\) is obtained by teacher forcing on the reference sequence \(y\). Since these sequence probabilities are very small, implementation should accumulate token log-probabilities and, where necessary, use stabilization such as \(\log\sum\exp\) before converting back to probabilities or normalized weights.
+На практике каждая \(\pi_{\theta}(y\mid x,z_i)\) получается teacher forcing на reference sequence \(y\). Поскольку эти sequence probabilities очень малы, реализация должна аккумулировать token log-probabilities и, где необходимо, использовать stabilization вроде \(\log\sum\exp\) перед обратным переходом к probabilities или normalized weights.
 
-The gradient naturally decomposes into three parts:
+Gradient естественно раскладывается на три части:
 \[
     \nabla_{\theta}J_{\mathrm{MRVF}}
     =
@@ -577,7 +577,7 @@ The gradient naturally decomposes into three parts:
 \]
 
 \paragraph{Reasoning term.}
-The score-function part over \(z\) is estimated from sampled traces and therefore benefits from variance reduction. A clean choice is the leave-one-out baseline
+Score-function часть по \(z\) оценивается по sampled traces и поэтому выигрывает от variance reduction. Чистый выбор --- leave-one-out baseline
 \[
     b_i
     =
@@ -585,17 +585,17 @@ The score-function part over \(z\) is estimated from sampled traces and therefor
     \qquad
     A_i=\hat r_i-b_i.
 \]
-The corresponding estimator is
+Соответствующий estimator равен
 \[
     g_{z}
     =
     \frac{1}{G}\sum_{i=1}^{G}
     A_i\,\nabla_{\theta}\log\pi_{\theta}(z_i\mid x).
 \]
-This is the same logic that motivates RLOO estimators: each trace is compared against the other traces sampled for the same prompt. If desired, one may further normalize the \(A_i\) values within the group to reduce prompt-specific reward-scale variation, in the spirit of GRPO. Such normalization improves robustness but is no longer strictly unbiased because the scale estimate itself depends on the sampled group.
+Это та же логика, которая мотивирует RLOO estimators: каждый trace сравнивается с другими traces, sampled для того же prompt. При желании можно дополнительно нормализовать \(A_i\) внутри группы, чтобы уменьшить prompt-specific reward-scale variation, в духе GRPO. Такая нормализация повышает robustness, но уже не является строго unbiased, поскольку scale estimate сама зависит от sampled group.
 
 \paragraph{Reference term.}
-For the direct answer-side contribution, the correct observed-set gradient is
+Для direct answer-side contribution корректный observed-set gradient равен
 \[
     g_{r}
     =
@@ -607,7 +607,7 @@ For the direct answer-side contribution, the correct observed-set gradient is
     \pi_{\theta}(y\mid x,z_i)\,
     \nabla_{\theta}\log\pi_{\theta}(y\mid x,z_i).
 \]
-Equivalently, using the normalized within-set weights
+Эквивалентно, используя normalized within-set weights
 \[
     w_{i,y}
     :=
@@ -615,7 +615,7 @@ Equivalently, using the normalized within-set weights
     {\hat r_i}
     \,\mathbb{I}\{y\in Y^{*}(x)\},
 \]
-one may write
+можно записать
 \[
     g_{r}
     =
@@ -625,10 +625,10 @@ one may write
     w_{i,y}\,
     \nabla_{\theta}\log\pi_{\theta}(y\mid x,z_i),
 \]
-whenever \(\hat r_i>0\). This form makes the geometry explicit: each trace receives a total weight \(\hat r_i\), and within that trace the gradient is distributed across references according to the current policy mass on each reference.
+если \(\hat r_i>0\). Эта форма делает geometry явной: каждый trace получает total weight \(\hat r_i\), а внутри этого trace gradient распределяется по references согласно текущей policy mass на каждом reference.
 
 \paragraph{KL term.}
-Finally,
+Наконец,
 \[
     g_{\mathrm{KL}}
     =
@@ -638,13 +638,13 @@ Finally,
     \pi_{\theta}(\cdot\mid x)\,\|\,\pi_{\mathrm{ref}}(\cdot\mid x)
     \big).
 \]
-The full update for a minibatch averages these prompt-level contributions over sampled prompts.
+Полный update для minibatch усредняет эти prompt-level contributions по sampled prompts.
 
-The practical importance of the implemented pipeline is now clear. Without prompt-conditioned multi-reference sets \(Y^{*}(x)\), neither \(\hat r_i\) nor \(g_r\) can be computed. The data pipeline is therefore not auxiliary to the theory, it provides the observed structure on which MRVF optimization depends.
+Практическая важность реализованного пайплайна теперь ясна. Без prompt-conditioned multi-reference sets \(Y^{*}(x)\) нельзя вычислить ни \(\hat r_i\), ни \(g_r\). Поэтому data pipeline не является вспомогательным к теории; он предоставляет observed structure, от которой зависит MRVF optimization.
 
-\subsection{Note on baselining}
+\subsection{Замечание о baselining}
 
-Variance reduction is straightforward only for the score-function term. The reason is that \(z\) is genuinely sampled from \(\pi_{\theta}(z\mid x)\). If \(b(x,z_{-i})\) is any baseline that does not depend on the sampled variable \(z_i\) itself, then
+Variance reduction прямолинейно применима только к score-function term. Причина в том, что \(z\) действительно sampled from \(\pi_{\theta}(z\mid x)\). Если \(b(x,z_{-i})\) --- baseline, не зависящий от sampled variable \(z_i\), то
 \begin{align*}
     \mathbb{E}_{z_i\sim\pi_{\theta}(\cdot\mid x)}
     \big[
@@ -661,13 +661,13 @@ Variance reduction is straightforward only for the score-function term. The reas
     b(x,z_{-i})\,\nabla_{\theta}1                    \\
      & = 0.
 \end{align*}
-This is why the leave-one-out baseline is unbiased for the reasoning term.
+Поэтому leave-one-out baseline unbiased для reasoning term.
 
-The reference term is different. It is not an expectation over sampled answers \(y\sim\pi_{\theta}(\cdot\mid x,z)\), it is a direct derivative of the summed reference probability. Consequently there is no identity of the form
+Reference term устроен иначе. Это не expectation по sampled answers \(y\sim\pi_{\theta}(\cdot\mid x,z)\), а direct derivative summed reference probability. Следовательно, нет тождества вида
 \[
     \mathbb{E}_{y}\big[\nabla_{\theta}\log\pi_{\theta}(y\mid x,z)\big]=0
 \]
-available for centering. For the single-reference case, for example,
+доступного для centering. Например, в single-reference case,
 \[
     \mathbb{E}_{z}
     \big[
@@ -675,7 +675,7 @@ available for centering. For the single-reference case, for example,
         \nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z)
         \big]
 \]
-equals
+равно
 \[
     \mathbb{E}_{z}
     \big[
@@ -689,8 +689,8 @@ equals
         \nabla_{\theta}\log\pi_{\theta}(y^{*}\mid x,z)
         \big],
 \]
-and the second term is not generally zero. The same issue persists in the multi-reference case with \(\nabla_{\theta}\log r_{\theta}(x,z,Y^{*})\). Therefore baselines that are harmless for the score-function term become biased if naively applied to the direct reference gradient.
+и второй член в общем случае не равен нулю. Та же проблема сохраняется в multi-reference case с \(\nabla_{\theta}\log r_{\theta}(x,z,Y^{*})\). Поэтому baselines, безвредные для score-function term, становятся biased, если наивно применить их к direct reference gradient.
 
-This distinction is important for the design of the training algorithm. The reasoning term should use variance-reduction machinery such as leave-one-out baselines or carefully chosen group normalization. The reference term should instead be computed as directly as possible from the observed-set probability, accepting that it is a deterministic but potentially biased proxy for the true reward produced by \(Y_{\mathrm{true}}(x)\).
+Это различие важно для дизайна training algorithm. Reasoning term должен использовать variance-reduction machinery, такую как leave-one-out baselines или аккуратно выбранную group normalization. Reference term, напротив, следует вычислять максимально прямо из observed-set probability, принимая, что это deterministic, но потенциально biased proxy для true reward, порождаемого \(Y_{\mathrm{true}}(x)\).
 
-Taken together, these observations explain the overall structure of the proposal. MRVF inherits the key computational advantage of verifier-free learning: it avoids external verifiers and explicit reward sampling over final answers but it must be adapted to the multi-reference, incomplete characteristic of humor. The resulting objective is mathematically tractable, but its limitations are part of the thesis contribution: incompleteness, false negatives, and estimator design are central to the problem.
+В совокупности эти наблюдения объясняют общую структуру предложения. MRVF наследует ключевое вычислительное преимущество verifier-free learning: он избегает external verifiers и explicit reward sampling over final answers, но должен быть адаптирован к multi-reference и incomplete характеру юмора. Итоговая objective математически tractable, но ее ограничения являются частью вклада работы: incompleteness, false negatives и estimator design центральны для проблемы.
