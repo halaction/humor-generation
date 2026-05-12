@@ -39,4 +39,4 @@ if torch.cuda.is_available():
     print("device", torch.cuda.get_device_name(0))
 PY
 
-python -u scripts/train_mrvf.py --config configs/training/mrvf_qwen3_1_7b_h200.yaml
+python -u scripts/train_mrvf.py --config configs/models/qwen3-17b-hpc.yaml
