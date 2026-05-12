@@ -136,6 +136,10 @@ class JokesPipeline(BasePipeline):
         return _TOKEN_PATTERN.findall(text)
 
     @staticmethod
+    def _token_fingerprint(tokens: list[str]) -> tuple[str, ...]:
+        return tuple(sorted(set(tokens)))
+
+    @staticmethod
     def _char_shingles(text: str, width: int = 3) -> set[str]:
         compact = text.replace(" ", "")
         if len(compact) < width:
@@ -184,16 +188,24 @@ class JokesPipeline(BasePipeline):
 
     def _deduplicate_table(self, table: pa.Table) -> tuple[pa.Table, dict[str, int]]:
         if not self.config.deduplication.enabled or table.num_rows == 0:
-            return table, {"raw_rows": table.num_rows, "kept_rows": table.num_rows, "exact_drops": 0, "near_drops": 0}
+            return table, {
+                "raw_rows": table.num_rows,
+                "kept_rows": table.num_rows,
+                "exact_drops": 0,
+                "token_set_drops": 0,
+                "near_drops": 0,
+            }
 
         rows = table.to_pylist()
 
         seen_exact: set[str] = set()
+        seen_token_sets: set[tuple[str, ...]] = set()
         kept_rows: list[dict[str, Any]] = []
         normalized_texts: list[str] = []
         token_lists: list[list[str]] = []
-        token_index: dict[str, list[int]] = {}
+        token_index: dict[tuple[int, str, str], list[int]] = {}
         exact_drops = 0
+        token_set_drops = 0
         near_drops = 0
 
         for row in rows:
@@ -210,9 +222,18 @@ class JokesPipeline(BasePipeline):
             if not tokens:
                 continue
 
+            token_fingerprint = self._token_fingerprint(tokens)
+            if len(token_fingerprint) >= self.config.deduplication.token_set_min_unique_tokens:
+                if token_fingerprint in seen_token_sets:
+                    token_set_drops += 1
+                    continue
+
             near_match = False
             first_token = tokens[0]
-            candidate_indices = token_index.get(first_token, [])
+            last_token = tokens[-1]
+            token_count_bucket = len(tokens) // 4
+            bucket_key = (token_count_bucket, first_token, last_token)
+            candidate_indices = token_index.get(bucket_key, [])
             for candidate_index in candidate_indices:
                 if self._is_near_duplicate(
                     incoming_normalized=normalized,
@@ -227,16 +248,19 @@ class JokesPipeline(BasePipeline):
                 continue
 
             seen_exact.add(normalized)
+            if len(token_fingerprint) >= self.config.deduplication.token_set_min_unique_tokens:
+                seen_token_sets.add(token_fingerprint)
             kept_rows.append(row)
             normalized_texts.append(normalized)
             token_lists.append(tokens)
-            token_index.setdefault(first_token, []).append(len(kept_rows) - 1)
+            token_index.setdefault(bucket_key, []).append(len(kept_rows) - 1)
 
         deduplicated_table = pa.Table.from_pylist(kept_rows, schema=table.schema)
         stats = {
             "raw_rows": table.num_rows,
             "kept_rows": deduplicated_table.num_rows,
             "exact_drops": exact_drops,
+            "token_set_drops": token_set_drops,
             "near_drops": near_drops,
         }
         return deduplicated_table, stats
@@ -334,6 +358,7 @@ class JokesPipeline(BasePipeline):
             raw_rows=dedup_stats["raw_rows"],
             dedup_enabled=self.config.deduplication.enabled,
             dedup_exact_drops=dedup_stats["exact_drops"],
+            dedup_token_set_drops=dedup_stats["token_set_drops"],
             dedup_near_drops=dedup_stats["near_drops"],
             output_path=str(output_path),
         )

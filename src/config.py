@@ -7,6 +7,7 @@ from src.settings import settings
 
 class JokesDeduplicationConfig(BaseModel):
     enabled: bool = True
+    token_set_min_unique_tokens: int = Field(default=5, ge=1)
     min_tokens_for_near_match: int = Field(default=4, ge=1)
     token_jaccard_threshold: float = Field(default=0.92, ge=0.0, le=1.0)
     char_jaccard_threshold: float = Field(default=0.90, ge=0.0, le=1.0)

@@ -2,6 +2,7 @@ jokes:
   hf_config_name: "jokes"
   deduplication:
     enabled: true
+    token_set_min_unique_tokens: 5
     min_tokens_for_near_match: 4
     token_jaccard_threshold: 0.92
     char_jaccard_threshold: 0.9
