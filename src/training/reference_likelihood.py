@@ -105,8 +105,18 @@ def teacher_forced_reference_logps_from_ids(
     shifted_attn_mask = attention_mask[:, 1:].to(logits.dtype)
     target_mask = shifted_ref_mask * shifted_attn_mask
 
-    token_logprobs = torch.log_softmax(logits, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
-    seq_logps_raw = (token_logprobs * target_mask).sum(dim=-1)
+    selected = target_mask.bool()
+    seq_logps_raw = torch.zeros(logits.shape[0], dtype=logits.dtype, device=device)
+    if selected.any():
+        selected_logits = logits[selected]
+        selected_labels = labels[selected]
+        selected_logprobs = -torch.nn.functional.cross_entropy(
+            selected_logits.float(),
+            selected_labels,
+            reduction="none",
+        ).to(logits.dtype)
+        row_ids = torch.arange(logits.shape[0], device=device).unsqueeze(1).expand_as(selected)[selected]
+        seq_logps_raw.scatter_add_(0, row_ids, selected_logprobs)
     seq_lengths = target_mask.sum(dim=-1).clamp_min(1)
     seq_logps_norm = _normalize_sequence_logps(seq_logps_raw, seq_lengths, length_normalization)
 

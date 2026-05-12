@@ -88,8 +88,21 @@ def _sequence_logprobs_from_ids(
     shifted_attn_mask = attention_mask[:, 1:].to(logits.dtype)
     effective_mask = shifted_target_mask * shifted_attn_mask
 
-    token_logprobs = torch.log_softmax(logits, dim=-1).gather(-1, labels.unsqueeze(-1)).squeeze(-1)
-    return (token_logprobs * effective_mask).sum(dim=-1)
+    selected = effective_mask.bool()
+    result = torch.zeros(logits.shape[0], dtype=logits.dtype, device=logits.device)
+    if not selected.any():
+        return result
+
+    selected_logits = logits[selected]
+    selected_labels = labels[selected]
+    selected_logprobs = -torch.nn.functional.cross_entropy(
+        selected_logits.float(),
+        selected_labels,
+        reduction="none",
+    ).to(logits.dtype)
+    row_ids = torch.arange(logits.shape[0], device=logits.device).unsqueeze(1).expand_as(selected)[selected]
+    result.scatter_add_(0, row_ids, selected_logprobs)
+    return result
 
 
 class MRVFTrainer:
@@ -159,10 +172,7 @@ class MRVFTrainer:
                 return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         if not self.cfg.use_thinking:
             return f"{prompt}\n{self.cfg.trace_instruction}"
-        return (
-            f"{prompt}\n"
-            "Think briefly using <think>...</think>, and output only the plan inside the think block."
-        )
+        return f"{prompt}\nThink briefly using <think>...</think>, and output only the plan inside the think block."
 
     def _generate_trace_batch(self, prompts: list[str], references: list[list[str]]) -> TraceBatch:
         grouped_prompt_texts: list[str] = []
