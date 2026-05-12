@@ -166,14 +166,11 @@ class MRVFTrainer:
 
     def _generate_trace_batch(self, prompts: list[str], references: list[list[str]]) -> TraceBatch:
         grouped_prompt_texts: list[str] = []
-        grouped_prompt_ids: list[list[int]] = []
         grouped_references: list[list[str]] = []
         for prompt, refs in zip(prompts, references, strict=True):
             prompt_text = self._build_trace_prompt_text(prompt)
-            prompt_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
             for _ in range(self.cfg.num_generations):
                 grouped_prompt_texts.append(prompt_text)
-                grouped_prompt_ids.append(prompt_ids)
                 grouped_references.append(refs)
 
         encoded = self.tokenizer(grouped_prompt_texts, padding=True, add_special_tokens=False, return_tensors="pt")
@@ -364,7 +361,7 @@ class MRVFTrainer:
         accum = max(1, self.cfg.gradient_accumulation_steps)
         self.optimizer.zero_grad(set_to_none=True)
         global_step = 0
-        micro_step = 0
+        accum_count = 0
         history: list[dict[str, float]] = []
         self._current_step = 0
         pending_sample: BatchDebugSample | None = None
@@ -379,28 +376,19 @@ class MRVFTrainer:
                 (loss / accum).backward()
                 history.append(metrics)
                 pending_sample = sample
-                micro_step += 1
-                if micro_step % accum == 0:
+                accum_count += 1
+                if accum_count == accum:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.max_grad_norm)
                     self.optimizer.step()
                     self.scheduler.step()
                     self.optimizer.zero_grad(set_to_none=True)
+                    accum_count = 0
                     global_step += 1
                     self._current_step = global_step
                     self._save_checkpoint(global_step)
                     self._append_sample_log(step=global_step, sample=pending_sample)
                     if global_step >= self.cfg.max_steps:
                         break
-
-            if micro_step % accum != 0 and global_step < self.cfg.max_steps:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.max_grad_norm)
-                self.optimizer.step()
-                self.scheduler.step()
-                self.optimizer.zero_grad(set_to_none=True)
-                global_step += 1
-                self._current_step = global_step
-                self._save_checkpoint(global_step)
-                self._append_sample_log(step=global_step, sample=pending_sample)
 
         self.model.save_pretrained(self.cfg.output_dir)
         self.tokenizer.save_pretrained(self.cfg.output_dir)
