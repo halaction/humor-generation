@@ -1,3 +1,2 @@
-# Prefer uv dependency groups:
-#   uv pip install -e . --group vllm
+# Install vLLM in a separate environment; current training groups pin torch for CUDA 12.6.
 vllm>=0.11.0

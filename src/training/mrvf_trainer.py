@@ -4,6 +4,7 @@ import random
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 import torch
@@ -140,6 +141,29 @@ class MRVFTrainer:
             num_training_steps=cfg.max_steps,
         )
         self._current_step = 0
+        self._wandb_run: Any | None = None
+        if cfg.report_to_wandb:
+            self._init_wandb()
+
+    def _init_wandb(self) -> None:
+        try:
+            import wandb
+        except ImportError as error:  # pragma: no cover
+            msg = "`report_to_wandb=True` requires the `wandb` package."
+            raise RuntimeError(msg) from error
+
+        self._wandb_run = wandb.init(
+            project=self.cfg.wandb_project,
+            entity=self.cfg.wandb_entity,
+            name=self.cfg.wandb_run_name,
+            tags=list(self.cfg.wandb_tags),
+            config=asdict(self.cfg),
+        )
+
+    def _wandb_log(self, payload: dict[str, Any], step: int) -> None:
+        if self._wandb_run is None:
+            return
+        self._wandb_run.log(payload, step=step)
 
     def _enable_lora(self) -> None:
         try:
@@ -265,6 +289,85 @@ class MRVFTrainer:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload) + "\n")
 
+    def _append_metrics_log(self, *, step: int, metrics: dict[str, float], step_seconds: float) -> None:
+        payload: dict[str, float | int] = {
+            "step": step,
+            "step_seconds": step_seconds,
+            "learning_rate": float(self.scheduler.get_last_lr()[0]),
+            **metrics,
+        }
+        if torch.cuda.is_available():
+            payload["cuda_memory_allocated_gb"] = torch.cuda.memory_allocated(self.device) / 1e9
+            payload["cuda_memory_reserved_gb"] = torch.cuda.memory_reserved(self.device) / 1e9
+
+        path = Path(self.cfg.metrics_log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload) + "\n")
+
+        if self.cfg.logging_steps > 0 and step % self.cfg.logging_steps == 0:
+            print(json.dumps(payload), flush=True)
+        self._wandb_log(dict(payload), step=step)
+
+    def _log_eval_sample_table(self, *, step: int, sample: BatchDebugSample | None) -> None:
+        if self._wandb_run is None or sample is None:
+            return
+        try:
+            import wandb
+        except ImportError:  # pragma: no cover
+            return
+        table = wandb.Table(
+            columns=["step", "prompt", "trace", "references", "reward", "advantage"],
+            data=[
+                [
+                    step,
+                    sample.prompt,
+                    sample.trace,
+                    "\n\n".join(sample.references),
+                    sample.reward,
+                    sample.advantage,
+                ]
+            ],
+        )
+        self._wandb_log({"eval/samples": table}, step=step)
+
+    def _evaluate_fixed_rows(self, *, rows: list[dict[str, Any]], step: int) -> dict[str, float]:
+        if not rows:
+            return {}
+
+        was_training = self.model.training
+        self.model.eval()
+        metrics_by_key: dict[str, list[float]] = {}
+        last_sample: BatchDebugSample | None = None
+        batch_size = max(1, self.cfg.per_device_train_batch_size)
+
+        with torch.no_grad():
+            for start in range(0, len(rows), batch_size):
+                batch = rows[start : start + batch_size]
+                _, metrics, sample = self._compute_losses_for_batch(batch)
+                for key, value in metrics.items():
+                    metrics_by_key.setdefault(key, []).append(value)
+                last_sample = sample
+
+        if was_training:
+            self.model.train()
+
+        eval_metrics = {
+            f"eval/{key}": float(sum(values) / max(len(values), 1))
+            for key, values in metrics_by_key.items()
+        }
+        if "eval/reward_mean" in eval_metrics:
+            eval_metrics["eval/log_mass_mean"] = eval_metrics["eval/reward_mean"]
+        eval_payload = {"step": step, **eval_metrics}
+        path = Path(self.cfg.metrics_log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(eval_payload) + "\n")
+        self._wandb_log(eval_metrics, step=step)
+        self._log_eval_sample_table(step=step, sample=last_sample)
+        print(json.dumps(eval_payload), flush=True)
+        return eval_metrics
+
     def _save_checkpoint(self, step: int) -> None:
         if self.cfg.save_steps <= 0 or step == 0 or step % self.cfg.save_steps != 0:
             return
@@ -361,11 +464,18 @@ class MRVFTrainer:
 
     def train(self, raw_train_dataset: Dataset, raw_eval_dataset: Dataset) -> dict[str, Any]:
         train_dataset = prepare_mrvf_dataset(raw_train_dataset, max_reference_samples=self.cfg.num_reference_samples)
-        _ = prepare_mrvf_dataset(raw_eval_dataset, max_reference_samples=self.cfg.num_reference_samples)
+        eval_dataset = prepare_mrvf_dataset(raw_eval_dataset, max_reference_samples=self.cfg.num_reference_samples)
         train_rows = [dict(item) for item in train_dataset]
         if not train_rows:
             msg = "Prepared training dataset is empty."
             raise RuntimeError(msg)
+        eval_rows = [dict(item) for item in eval_dataset]
+        eval_rng = random.Random(self.cfg.seed)
+        eval_rng.shuffle(eval_rows)
+        if self.cfg.eval_sample_size > 0:
+            eval_rows = eval_rows[: self.cfg.eval_sample_size]
+        else:
+            eval_rows = []
 
         batch_size = max(1, self.cfg.per_device_train_batch_size)
         accum = max(1, self.cfg.gradient_accumulation_steps)
@@ -375,6 +485,8 @@ class MRVFTrainer:
         history: list[dict[str, float]] = []
         self._current_step = 0
         pending_sample: BatchDebugSample | None = None
+        pending_metrics: dict[str, float] | None = None
+        step_started_at = time.perf_counter()
 
         while global_step < self.cfg.max_steps:
             self.random.shuffle(train_rows)
@@ -386,6 +498,7 @@ class MRVFTrainer:
                 (loss / accum).backward()
                 history.append(metrics)
                 pending_sample = sample
+                pending_metrics = metrics
                 accum_count += 1
                 if accum_count == accum:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.max_grad_norm)
@@ -396,12 +509,24 @@ class MRVFTrainer:
                     global_step += 1
                     self._current_step = global_step
                     self._save_checkpoint(global_step)
+                    if pending_metrics is not None:
+                        now = time.perf_counter()
+                        self._append_metrics_log(
+                            step=global_step,
+                            metrics=pending_metrics,
+                            step_seconds=now - step_started_at,
+                        )
+                        step_started_at = now
                     self._append_sample_log(step=global_step, sample=pending_sample)
+                    if self.cfg.eval_every_steps > 0 and global_step % self.cfg.eval_every_steps == 0:
+                        self._evaluate_fixed_rows(rows=eval_rows, step=global_step)
                     if global_step >= self.cfg.max_steps:
                         break
 
         self.model.save_pretrained(self.cfg.output_dir)
         self.tokenizer.save_pretrained(self.cfg.output_dir)
+        if self._wandb_run is not None:
+            self._wandb_run.finish()
         return {
             "config": asdict(self.cfg),
             "steps": global_step,

@@ -1,18 +1,18 @@
 model_name_or_path: Qwen/Qwen3-1.7B
-output_dir: data/checkpoints/qwen3-17b
+output_dir: data/checkpoints/qwen3-17b-light
 dataset_name: halaction/humor-generation
 dataset_config_name: references
 train_split: train
 eval_split: validation
-max_steps: 1000
+max_steps: 100
 learning_rate: 1.0e-5
 per_device_train_batch_size: 1
-gradient_accumulation_steps: 16
-num_generations: 4
+gradient_accumulation_steps: 4
+num_generations: 2
 max_completion_length: 128
-max_trace_length: 128
-max_reference_length: 128
-num_reference_samples: 5
+max_trace_length: 64
+max_reference_length: 64
+num_reference_samples: 2
 objective_mode: log_mass_surrogate
 reward_transform: log_mass
 advantage_mode: loo
@@ -27,7 +27,19 @@ trace_format: qwen_chat_thinking
 use_peft: true
 lora_r: 32
 lora_alpha: 64
-gradient_checkpointing: true
+gradient_checkpointing: false
 torch_dtype: bfloat16
-logging_steps: 10
-save_steps: 100
+eval_every_steps: 10
+eval_sample_size: 16
+logging_steps: 5
+save_steps: 25
+metrics_log_path: data/logs/qwen3-17b-mrvf-light-metrics.jsonl
+sample_log_path: data/logs/qwen3-17b-mrvf-light-samples.jsonl
+report_to_wandb: true
+wandb_project: humor-generation
+wandb_run_name: qwen3-17b-mrvf-lora-a100-r2-light
+wandb_tags:
+  - qwen3-17b
+  - mrvf
+  - lora
+  - a100

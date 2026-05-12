@@ -53,10 +53,17 @@ class MRVFConfig:
     torch_dtype: Literal["auto", "float16", "bfloat16", "float32"] = "auto"
     gradient_checkpointing: bool = False
     eval_every_steps: int = 0
+    eval_sample_size: int = 16
     trace_format: Literal["plain", "qwen_chat_thinking"] = "plain"
     logging_steps: int = 10
     save_steps: int = 100
+    metrics_log_path: str = "data/logs/mrvf_metrics.jsonl"
     sample_log_path: str = "data/logs/mrvf_samples.jsonl"
+    report_to_wandb: bool = False
+    wandb_project: str = "humor-generation"
+    wandb_run_name: str | None = None
+    wandb_entity: str | None = None
+    wandb_tags: tuple[str, ...] = ()
 
     def validate(self) -> None:
         if self.num_generations < 2:
@@ -73,4 +80,7 @@ class MRVFConfig:
             raise ValueError(msg)
         if self.objective_mode == "exact_scaled" and self.reference_length_normalization != "none":
             msg = "`objective_mode=exact_scaled` requires `reference_length_normalization=none`."
+            raise ValueError(msg)
+        if self.eval_every_steps < 0 or self.eval_sample_size < 0:
+            msg = "`eval_every_steps` and `eval_sample_size` must be non-negative."
             raise ValueError(msg)
