@@ -12,8 +12,8 @@ def test_data_pipeline_build_and_publish_orchestration(monkeypatch) -> None:
             calls.append(("jokes.publish", kwargs))
 
     class _FakeEmbeddingsPipeline:
-        def build(self, split: str, resume: bool) -> None:
-            calls.append(("embeddings.build", {"split": split, "resume": resume}))
+        def build(self, jokes_split: str, resume: bool) -> None:
+            calls.append(("embeddings.build", {"jokes_split": jokes_split, "resume": resume}))
 
         def publish(self, **kwargs) -> None:
             calls.append(("embeddings.publish", kwargs))
@@ -57,24 +57,18 @@ def test_data_pipeline_build_and_publish_orchestration(monkeypatch) -> None:
     monkeypatch.setattr("src.pipelines.data.EmbeddingsPipeline", _FakeEmbeddingsPipeline)
     monkeypatch.setattr("src.pipelines.data.KeywordsPipeline", _FakeKeywordsPipeline)
     monkeypatch.setattr("src.pipelines.data.ReferencesPipeline", _FakeReferencesPipeline)
-    monkeypatch.setattr(
-        "src.pipelines.data.DataPipeline._clear_reference_index_cache",
-        lambda self: calls.append(("clear_index", {})),
-    )
+    monkeypatch.setattr("src.pipelines.data.DataPipeline._clear_derived_artifacts", lambda self: calls.append(("clear", {})))
 
     pipeline = DataPipeline()
-    result = pipeline.build(
-        jokes_split="train",
-        embeddings_split="train[:1000]",
-        keywords_split="train",
-        resume=False,
-    )
+    result = pipeline.build(resume=False)
     pipeline.publish(private=True)
 
-    assert result.embeddings_split == "train[:1000]"
+    assert result.embeddings_split == "train"
+    assert result.keywords_jokes_split == "train[:1500]"
+    assert result.references_jokes_split == "train"
     assert [name for name, _ in calls] == [
+        "clear",
         "jokes.build",
-        "clear_index",
         "embeddings.build",
         "keywords.build",
         "references.build",
@@ -83,11 +77,11 @@ def test_data_pipeline_build_and_publish_orchestration(monkeypatch) -> None:
         "keywords.publish",
         "references.publish",
     ]
-    assert calls[2][1] == {"split": "train[:1000]", "resume": False}
-    assert calls[3][1] == {"jokes_split": "train", "embeddings_split": "train[:1000]", "resume": False}
+    assert calls[2][1] == {"jokes_split": "train", "resume": False}
+    assert calls[3][1] == {"jokes_split": "train[:1500]", "embeddings_split": "train", "resume": False}
     assert calls[4][1] == {
         "jokes_split": "train",
-        "embeddings_split": "train[:1000]",
+        "embeddings_split": "train",
         "keywords_split": "train",
         "resume": False,
     }
@@ -102,8 +96,8 @@ def test_data_pipeline_resume_true_does_not_clear_index(monkeypatch) -> None:
             calls.append("jokes")
 
     class _FakeEmbeddingsPipeline:
-        def build(self, split: str, resume: bool) -> None:
-            calls.append(f"embeddings:{resume}")
+        def build(self, jokes_split: str, resume: bool) -> None:
+            calls.append(f"embeddings:{jokes_split}:{resume}")
 
     class _FakeKeywordsPipeline:
         def build(self, jokes_split: str, embeddings_split: str, resume: bool) -> None:
@@ -117,7 +111,7 @@ def test_data_pipeline_resume_true_does_not_clear_index(monkeypatch) -> None:
     monkeypatch.setattr("src.pipelines.data.EmbeddingsPipeline", _FakeEmbeddingsPipeline)
     monkeypatch.setattr("src.pipelines.data.KeywordsPipeline", _FakeKeywordsPipeline)
     monkeypatch.setattr("src.pipelines.data.ReferencesPipeline", _FakeReferencesPipeline)
-    monkeypatch.setattr("src.pipelines.data.DataPipeline._clear_reference_index_cache", lambda self: calls.append("clear"))
+    monkeypatch.setattr("src.pipelines.data.DataPipeline._clear_derived_artifacts", lambda self: calls.append("clear"))
 
     DataPipeline().build(resume=True)
-    assert calls == ["jokes", "embeddings:True", "keywords:True", "references:True"]
+    assert calls == ["jokes", "embeddings:train:True", "keywords:True", "references:True"]

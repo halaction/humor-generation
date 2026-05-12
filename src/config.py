@@ -23,6 +23,7 @@ class JokesConfig(BaseModel):
 class EmbeddingsConfig(BaseModel):
     hf_config_name: str = "embeddings"
     data_filename: str = "embeddings.parquet"
+    jokes_split: str = "train"
     model: str
     dimensions: int = Field(gt=0)
     batch_size: int = Field(gt=0)
@@ -35,6 +36,8 @@ class EmbeddingsConfig(BaseModel):
 class KeywordsConfig(BaseModel):
     hf_config_name: str = "keywords"
     data_filename: str = "keywords.parquet"
+    jokes_split: str = "train[:1500]"
+    embeddings_split: str = "train"
     ngram_min: int = Field(default=1, ge=1)
     ngram_max: int = Field(default=3, ge=1)
     top_n: int = Field(default=3, ge=1)
@@ -43,7 +46,7 @@ class KeywordsConfig(BaseModel):
     max_candidates: int = Field(default=256, ge=1)
     model: str
     dimensions: int = Field(gt=0)
-    batch_size: int = Field(default=128, gt=0)
+    batch_size: int = Field(default=64, gt=0)
     shard_size: int = Field(gt=0)
     max_parallel_requests: int = Field(gt=0)
     timeout: int = Field(default=60, gt=0)
@@ -53,22 +56,26 @@ class KeywordsConfig(BaseModel):
 class ReferencesConfig(BaseModel):
     hf_config_name: str = "references"
     data_filename: str = "references.parquet"
+    jokes_split: str = "train"
+    embeddings_split: str = "train"
+    keywords_split: str = "train"
     model: str
     dimensions: int = Field(gt=0)
     min_keywords: int = Field(default=1, ge=1)
     max_keywords: int = Field(default=2, ge=1)
     top_k: int = Field(default=20, gt=0)
+    min_references: int = Field(default=2, ge=1)
     min_similarity: float = 0.0
-    input_batch_size: int = Field(default=64, gt=0)
-    output_batch_size: int = Field(default=64, gt=0)
+    input_batch_size: int = Field(default=128, gt=0)
+    output_batch_size: int = Field(default=128, gt=0)
     shard_size: int = Field(default=10000, gt=0)
     max_parallel_requests: int = Field(default=5, gt=0)
     timeout: int = Field(default=60, gt=0)
     max_retries: int = Field(default=5, gt=0)
     faiss_nlist: int = Field(default=4096, gt=0)
-    faiss_nprobe: int = Field(default=32, gt=0)
+    faiss_nprobe: int = Field(default=64, gt=0)
     faiss_train_size: int = Field(default=200000, gt=0)
-    faiss_batch_size: int = Field(default=10000, gt=0)
+    faiss_batch_size: int = Field(default=20000, gt=0)
     oversample: int = Field(default=10, ge=0)
     validation_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
     test_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)

@@ -4,11 +4,12 @@ import math
 from collections import defaultdict
 from itertools import batched, combinations
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import faiss
 import numpy as np
 import numpy.typing as npt
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 from datasets import Dataset, load_dataset
@@ -26,9 +27,6 @@ from src.pipelines.jokes import JokesPipeline
 from src.pipelines.keywords import KeywordsPipeline
 from src.settings import settings
 from src.templates import environment
-
-if TYPE_CHECKING:
-    import polars as pl
 
 logger = get_logger(__name__)
 
@@ -166,7 +164,7 @@ class ReferencesPipeline(BasePipeline):
             return None
 
         metadata = json.loads(self.meta_path.read_text(encoding="utf-8"))
-        effective_nlist = min(self.config.faiss_nlist, max(1, expected_rows))
+        effective_nlist = self._effective_faiss_nlist(expected_rows)
         if metadata.get("model") != self.config.model:
             return None
         if metadata.get("dimensions") != self.config.dimensions:
@@ -195,6 +193,15 @@ class ReferencesPipeline(BasePipeline):
         )
         return index
 
+    def _effective_faiss_nlist(self, expected_rows: int) -> int:
+        if expected_rows <= 0:
+            return 1
+
+        training_rows = min(self.config.faiss_train_size, expected_rows)
+        row_cap = max(1, expected_rows // 100)
+        training_cap = max(1, training_rows // 40)
+        return min(self.config.faiss_nlist, row_cap, training_cap)
+
     def _build_faiss_index(self, embeddings: Dataset) -> faiss.IndexIVFFlat:
         expected_rows = len(embeddings)
         cached_index = self._load_faiss_index(expected_rows=expected_rows)
@@ -202,7 +209,7 @@ class ReferencesPipeline(BasePipeline):
             return cached_index
 
         self.index_dir.mkdir(parents=True, exist_ok=True)
-        effective_nlist = min(self.config.faiss_nlist, max(1, expected_rows))
+        effective_nlist = self._effective_faiss_nlist(expected_rows)
         logger.info(
             "index.build.start",
             rows=expected_rows,
@@ -376,13 +383,13 @@ class ReferencesPipeline(BasePipeline):
                 scores=output_scores,
             )
 
-    @staticmethod
-    def _deduplicate_dataset(dataset: Dataset) -> Dataset:
+    def _deduplicate_dataset(self, dataset: Dataset) -> Dataset:
         if len(dataset) == 0:
             return dataset
 
         frame = cast("pl.DataFrame", dataset.to_polars())
         deduplicated = frame.unique(subset=["keywords"], keep="first", maintain_order=True)
+        deduplicated = deduplicated.filter(pl.col("references").list.len() >= self.config.min_references)
         deduplicated = deduplicated.drop("id").with_row_index("id").select(["id", "keywords", "references", "scores"])
 
         return Dataset.from_polars(deduplicated)
@@ -519,7 +526,7 @@ class ReferencesPipeline(BasePipeline):
 
         embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
         if not embeddings_dir.exists():
-            EmbeddingsPipeline().build(split=embeddings_split, resume=True)
+            EmbeddingsPipeline().build(jokes_split=config.embeddings.jokes_split, resume=True)
 
         keywords_dir = DATA_DIR / config.keywords.hf_config_name
         if not keywords_dir.exists():

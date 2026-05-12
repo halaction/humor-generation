@@ -28,4 +28,4 @@ def test_prepare_mrvf_dataset_filters_and_deduplicates() -> None:
     assert row["id"] == 1
     assert row["references"] == ["j1", "j2"]
     assert row["scores"] == [0.9, 0.5]
-    assert row["prompt"] == "Write a joke using the following keyword(s): cat, dog"
+    assert row["prompt"] == "Write a joke using the following keywords: cat, dog"

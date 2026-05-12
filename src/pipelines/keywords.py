@@ -259,7 +259,7 @@ class KeywordsPipeline(BasePipeline):
 
         embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
         if not embeddings_dir.exists():
-            EmbeddingsPipeline().build(split=embeddings_split, resume=True)
+            EmbeddingsPipeline().build(jokes_split=config.embeddings.jokes_split, resume=True)
 
         jokes = load_dataset("parquet", data_dir=str(jokes_dir), split=jokes_split)
         embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split=embeddings_split)

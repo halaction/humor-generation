@@ -70,7 +70,7 @@ class EmbeddingsPipeline(BasePipeline):
                         embedding=[item.embedding for item in response.data],
                     )
                 except Exception:
-                    if attempt + 1 >= self.config.max_retries:
+                    if attempt >= self.config.max_retries:
                         raise
                     await asyncio.sleep(2 ** (attempt - 1))
                 else:
@@ -135,14 +135,14 @@ class EmbeddingsPipeline(BasePipeline):
 
     def build(
         self,
-        split: str = "train",
+        jokes_split: str = "train",
         resume: bool = True,
     ) -> None:
         jokes_dir = DATA_DIR / config.jokes.hf_config_name
         if not jokes_dir.exists():
             JokesPipeline().build()
 
-        jokes = load_dataset("parquet", data_dir=str(jokes_dir), split=split)
+        jokes = load_dataset("parquet", data_dir=str(jokes_dir), split=jokes_split)
         asyncio.run(self.run(jokes=jokes, resume=resume))
         logger.info(
             "build.done",
@@ -180,7 +180,7 @@ class EmbeddingsPipeline(BasePipeline):
 
 def main() -> None:
     pipeline = EmbeddingsPipeline()
-    pipeline.build(split="train[:10005]", resume=True)
+    pipeline.build(jokes_split="train[:10005]", resume=True)
     pipeline.publish()
 
     logger.info(
