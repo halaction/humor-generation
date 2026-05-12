@@ -1,0 +1,164 @@
+\begin{thebibliography}{26}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Amin and Burghardt(2020)]{amin2020survey}
+Mostafa Amin and Manuel Burghardt.
+\newblock A survey on approaches to computational humor generation.
+\newblock In \emph{Proceedings of the 4th Joint {SIGHUM} Workshop on Computational Linguistics for Cultural Heritage, Social Sciences, Humanities and Literature}, pages 29--41, 2020.
+\newblock URL \url{https://aclanthology.org/2020.latechclfl-1.4/}.
+
+\bibitem[Chen et~al.(2023)Chen, Shi, and Si]{chen2023prompt}
+Yahui Chen, Buxin Shi, and Meng Si.
+\newblock Prompt to {GPT}-3: Step-by-step thinking instructions for humor generation, 2023.
+\newblock URL \url{https://arxiv.org/abs/2306.13195}.
+\newblock arXiv:2306.13195.
+
+\bibitem[Chu et~al.(2025)Chu, Zhang, Chen, Ding, and Yu]{Chu2025}
+Tianyu Chu, Shuhua Zhang, Yu~Chen, Ning Ding, and Tao Yu.
+\newblock {SFT} memorizes, {RL} generalizes: A comparative study of foundation model post-training, 2025.
+\newblock URL \url{https://openreview.net/forum?id=2P4rYTtGok}.
+\newblock OpenReview / arXiv preprint.
+
+\bibitem[Cocchieri et~al.(2025)Cocchieri, Ragazzi, Italiani, Tagliavini, and Moro]{cocchieri2025you}
+Andrea Cocchieri, Lorenzo Ragazzi, Pietro Italiani, Giuseppe Tagliavini, and Gianluca Moro.
+\newblock ``what do you call a dog that is incontrovertibly true? dogma'': Testing {LLM} generalization through humor.
+\newblock In \emph{Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)}, pages 22922--22937, 2025.
+\newblock URL \url{https://doi.org/10.18653/v1/2025.acl-long.1117}.
+
+\bibitem[De~Marez et~al.(2024)De~Marez, Winters, and Rigouts~Terryn]{demarez2024thinc}
+Victor De~Marez, Tim Winters, and Ayla Rigouts~Terryn.
+\newblock {THInC}: A theory-driven framework for computational humor detection, 2024.
+\newblock URL \url{https://arxiv.org/abs/2409.01232}.
+\newblock arXiv:2409.01232.
+
+\bibitem[{DeepSeek-AI}(2025)]{DeepSeek2025}
+{DeepSeek-AI}.
+\newblock {DeepSeek-R1}: Incentivizing reasoning capability in {LLM}s via reinforcement learning, 2025.
+\newblock URL \url{https://doi.org/10.48550/arXiv.2501.12948}.
+\newblock arXiv:2501.12948.
+
+\bibitem[Gao et~al.(2023)Gao, Schulman, Hilton, et~al.]{Gao2023}
+Leo Gao, John Schulman, Jacob Hilton, et~al.
+\newblock Scaling laws for reward model overoptimization, 2023.
+\newblock URL \url{https://arxiv.org/abs/2210.10760}.
+\newblock arXiv:2210.10760.
+
+\bibitem[Hashemi et~al.(2024)Hashemi, Eisner, Rosset, Van~Durme, and Kedzie]{Hashemi2024}
+Hamid Hashemi, Jason Eisner, Corby Rosset, Benjamin Van~Durme, and Chris Kedzie.
+\newblock {LLM-Rubric}: A multidimensional, calibrated approach to automated evaluation of natural language texts.
+\newblock In \emph{Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics}, 2024.
+\newblock URL \url{https://aclanthology.org/2024.acl-long.745/}.
+
+\bibitem[Kao et~al.(2016)Kao, Levy, and Goodman]{kao2016computational}
+Justine~T. Kao, Roger Levy, and Noah~D. Goodman.
+\newblock A computational model of linguistic humor in puns.
+\newblock \emph{Cognitive Science}, 40\penalty0 (5):\penalty0 1270--1285, 2016.
+\newblock URL \url{https://doi.org/10.1111/cogs.12269}.
+
+\bibitem[Kim and Chilton(2025)]{Kim2025}
+Sangho Kim and Lydia~B. Chilton.
+\newblock {AI} humor generation: Cognitive, social and creative skills for effective humor, 2025.
+\newblock URL \url{https://arxiv.org/abs/2502.07981}.
+\newblock arXiv:2502.07981.
+
+\bibitem[Lemmens and De~Marez(2026)]{lemmens2026computational}
+Jens Lemmens and Victor De~Marez.
+\newblock Computational humor modeling: A survey on the state of the art.
+\newblock \emph{{ACM} Computing Surveys}, 58\penalty0 (7):\penalty0 177:1--177:37, 2026.
+\newblock URL \url{https://www.uantwerpen.be/en/staff/jens-lemmens/publications/}.
+
+\bibitem[Lightman et~al.(2023)Lightman, Kosaraju, Burda, Edwards, Baker, Lee, Leike, Schulman, Sutskever, and Cobbe]{Lightman2023}
+Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harrison Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe.
+\newblock Let's verify step by step, 2023.
+\newblock URL \url{https://arxiv.org/abs/2305.20050}.
+\newblock OpenAI / arXiv preprint.
+
+\bibitem[Loakman et~al.(2025{\natexlab{a}})Loakman, Thorne, and Lin]{Loakman2025}
+Thomas Loakman, William Thorne, and Chien-Sheng Lin.
+\newblock Who's laughing now? an overview of computational humour generation and explanation, 2025{\natexlab{a}}.
+\newblock URL \url{https://arxiv.org/abs/2509.21175}.
+\newblock arXiv:2509.21175.
+
+\bibitem[Loakman et~al.(2025{\natexlab{b}})Loakman, Thorne, and Lin]{loakman2025comparing}
+Thomas Loakman, William Thorne, and Chien-Sheng Lin.
+\newblock Comparing apples to oranges: A dataset {\&} analysis of {LLM} humour understanding from traditional puns to topical jokes.
+\newblock In \emph{Findings of the Association for Computational Linguistics: {EMNLP} 2025}, pages 9502--9518, 2025{\natexlab{b}}.
+\newblock URL \url{https://doi.org/10.18653/v1/2025.findings-emnlp.505}.
+
+\bibitem[Ritchie(2001)]{ritchie2001current}
+Graeme Ritchie.
+\newblock Current directions in computational humour.
+\newblock \emph{Artificial Intelligence Review}, 16\penalty0 (2):\penalty0 119--135, 2001.
+\newblock URL \url{https://doi.org/10.1023/A:1011610210506}.
+
+\bibitem[Sakabe et~al.(2025)Sakabe, Kim, Hirasawa, and Komachi]{Sakabe2025}
+Ryo Sakabe, Hwiyeon Kim, Tatsuya Hirasawa, and Mamoru Komachi.
+\newblock Assessing the capabilities of {LLM}s in humor: A multi-dimensional analysis of {Oogiri} generation and evaluation, 2025.
+\newblock URL \url{https://arxiv.org/abs/2511.09133}.
+\newblock arXiv:2511.09133.
+
+\bibitem[Tikhonov and Shtykovskiy(2024)]{Tikhonov2024}
+Alexey Tikhonov and Pavel Shtykovskiy.
+\newblock Humor mechanics: Advancing humor generation with multistep reasoning, 2024.
+\newblock URL \url{https://arxiv.org/abs/2405.10073}.
+\newblock arXiv:2405.10073.
+
+\bibitem[Wei et~al.(2022)Wei, Wang, Schuurmans, Bosma, Ichter, Xia, Chi, Le, and Zhou]{Wei2022}
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed~H. Chi, Quoc Le, and Denny Zhou.
+\newblock Chain-of-thought prompting elicits reasoning in large language models, 2022.
+\newblock URL \url{https://doi.org/10.48550/arXiv.2201.11903}.
+\newblock arXiv:2201.11903.
+
+\bibitem[Weller and Seppi(2020)]{weller2020rjokes}
+Orion Weller and Kevin Seppi.
+\newblock The {rJokes} dataset: A large scale humor collection.
+\newblock In \emph{Proceedings of the Twelfth Language Resources and Evaluation Conference}, pages 6136--6141, 2020.
+\newblock URL \url{https://aclanthology.org/2020.lrec-1.753/}.
+
+\bibitem[Winters and Van~der Stockt(2025)]{winters2025evaluating}
+Tim Winters and Sam Van~der Stockt.
+\newblock Evaluating humor generation in an improvisational comedy setting.
+\newblock \emph{Computational Linguistics in the Netherlands Journal}, 14:\penalty0 505--523, 2025.
+\newblock URL \url{https://www.clinjournal.org/clinj/article/view/214}.
+
+\bibitem[Xu et~al.(2024)Xu, Yuan, Chen, and Yang]{xu2024good}
+Zhen Xu, Shaojie Yuan, Li~Chen, and Diyi Yang.
+\newblock ``a good pun is its own reword'': Can large language models understand puns?
+\newblock In \emph{Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing}, pages 11766--11782, 2024.
+\newblock URL \url{https://doi.org/10.18653/v1/2024.emnlp-main.657}.
+
+\bibitem[Yu et~al.(2025)Yu, Ji, Wang, Yao, Wang, Cui, Yuan, Ding, Yao, Liu, Sun, and Chua]{Yu2025}
+Tianyu Yu, Bin Ji, Shun Wang, Shunyu Yao, Zhijian Wang, Ganqu Cui, Luqi Yuan, Ning Ding, Yong Yao, Zhiyuan Liu, Maosong Sun, and Tat-Seng Chua.
+\newblock {RLPR}: Extrapolating {RLVR} to general domains without verifiers, 2025.
+\newblock URL \url{https://doi.org/10.48550/arXiv.2506.18254}.
+\newblock arXiv:2506.18254.
+
+\bibitem[Zhang et~al.(2025)Zhang, Luo, Zhang, and Su]{ZhangJ2025}
+Jiawei Zhang, Sizhe Luo, Ruijie Zhang, and Qi~Su.
+\newblock {HUMORCHAIN}: Theory-guided multi-stage reasoning for interpretable multimodal humor generation, 2025.
+\newblock URL \url{https://doi.org/10.48550/arXiv.2511.21732}.
+\newblock arXiv:2511.21732.
+
+\bibitem[Zhang et~al.(2024)Zhang, Jain, Guo, Chen, Zhou, Suresh, Wagenmaker, Sievert, Rogers, Jamieson, Mankoff, and Nowak]{Zhang2024HumorAI}
+Jie Zhang, Lily Jain, Yichi Guo, Justin Chen, Kexin~Linda Zhou, Sreeranjani Suresh, Amanda Wagenmaker, Scott Sievert, Taylor Rogers, Kevin Jamieson, Robert Mankoff, and Robert Nowak.
+\newblock Humor in {AI}: Massive scale crowd-sourced preferences and benchmarks for cartoon captioning, 2024.
+\newblock URL \url{https://arxiv.org/abs/2406.10522}.
+\newblock Advances in Neural Information Processing Systems, Datasets and Benchmarks Track.
+
+\bibitem[Zhong et~al.(2024)Zhong, Huang, Gao, Wen, Lin, Zitnik, and Zhou]{zhong2024let}
+Shaoxiong Zhong, Zicheng Huang, Shufan Gao, Wen Wen, Lin Lin, Marinka Zitnik, and Pan Zhou.
+\newblock Let's think outside the box: Exploring leap-of-thought in large language models with creative humor generation.
+\newblock In \emph{Proceedings of the {IEEE/CVF} Conference on Computer Vision and Pattern Recognition}, pages 13246--13257, 2024.
+\newblock URL \url{https://openaccess.thecvf.com/content/CVPR2024/html/Zhong_Lets_Think_Outside_the_Box_Exploring_Leap-of-Thought_in_Large_Language_CVPR_2024_paper.html}.
+
+\bibitem[Zhou et~al.(2025)Zhou, Liu, Sims, Wang, Pang, Li, Wang, Lin, and Du]{Zhou2025}
+Xingcheng Zhou, Zihan Liu, Ariel Sims, Han Wang, Tianyu Pang, Chao Li, Li~Wang, Min Lin, and Chao Du.
+\newblock Reinforcing general reasoning without verifiers, 2025.
+\newblock URL \url{https://arxiv.org/abs/2505.21493}.
+\newblock arXiv:2505.21493.
+
+\end{thebibliography}
