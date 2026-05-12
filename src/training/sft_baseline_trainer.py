@@ -15,9 +15,8 @@ def _load_sft_stack() -> tuple[Any, Any, Any, Any, Any]:
         from trl import SFTConfig, SFTTrainer
     except ImportError as error:  # pragma: no cover
         msg = (
-            "SFT dependencies are missing. Install one of: "
-            "`requirements/training-cpu.txt`, `requirements/training-colab.txt`, "
-            "or `requirements/training-hpc.txt`."
+            "SFT dependencies are missing. Install the training stack with uv, for example: "
+            "`uv pip install -e . --group cpu`."
         )
         raise RuntimeError(msg) from error
     return AutoModelForCausalLM, AutoTokenizer, SFTConfig, SFTTrainer, None

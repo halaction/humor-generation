@@ -1,0 +1,5 @@
+# Prefer uv dependency groups:
+#   uv pip install --system -e . --group colab
+-r cpu.txt
+bitsandbytes>=0.47.0
+torchao>=0.16.0

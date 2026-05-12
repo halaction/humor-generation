@@ -1,0 +1,6 @@
+# Prefer uv dependency groups:
+#   uv pip install -e . --group hpc
+-r cpu.txt
+bitsandbytes>=0.47.0
+torchao>=0.16.0
+safetensors>=0.6.2

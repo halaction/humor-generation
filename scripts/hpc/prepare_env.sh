@@ -14,5 +14,5 @@ else
 fi
 
 source activate "${ENV_NAME}"
-python -m pip install --upgrade pip
-python -m pip install -r requirements/training-hpc.txt
+python -m pip install --upgrade pip uv
+uv pip install -e . --group hpc

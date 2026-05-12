@@ -1,3 +1,5 @@
+# Prefer uv dependency groups:
+#   uv pip install -e . --group cpu
 accelerate>=1.10.0
 datasets>=4.3.0
 peft>=0.17.1
