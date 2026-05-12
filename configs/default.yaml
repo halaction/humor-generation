@@ -1,5 +1,11 @@
 jokes:
   hf_config_name: "jokes"
+  deduplication:
+    enabled: true
+    min_tokens_for_near_match: 4
+    token_jaccard_threshold: 0.92
+    char_jaccard_threshold: 0.9
+    edit_ratio_threshold: 0.94
 
 embeddings:
   hf_config_name: "embeddings"

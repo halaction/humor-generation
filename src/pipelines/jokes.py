@@ -1,5 +1,8 @@
 import csv
+import difflib
 import gzip
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -17,6 +20,8 @@ from src.settings import settings
 from src.pipelines.base import BasePipeline
 
 logger = get_logger(__name__)
+_TOKEN_PATTERN = re.compile(r"[a-z0-9']+")
+_NON_ALNUM_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
 def _parse_source_id(value: str) -> int:
@@ -120,6 +125,122 @@ class JokesPipeline(BasePipeline):
         )
         return destination
 
+    @staticmethod
+    def _normalize_exact(text: str) -> str:
+        normalized = unicodedata.normalize("NFKC", text).casefold()
+        normalized = _NON_ALNUM_PATTERN.sub(" ", normalized)
+        return " ".join(normalized.split())
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        return _TOKEN_PATTERN.findall(text)
+
+    @staticmethod
+    def _char_shingles(text: str, width: int = 3) -> set[str]:
+        compact = text.replace(" ", "")
+        if len(compact) < width:
+            return {compact} if compact else set()
+        return {compact[index : index + width] for index in range(0, len(compact) - width + 1)}
+
+    @staticmethod
+    def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+        if not left and not right:
+            return 1.0
+        union = left | right
+        if not union:
+            return 1.0
+        return len(left & right) / len(union)
+
+    def _is_near_duplicate(
+        self,
+        incoming_normalized: str,
+        incoming_tokens: list[str],
+        candidate_normalized: str,
+        candidate_tokens: list[str],
+    ) -> bool:
+        min_tokens = self.config.deduplication.min_tokens_for_near_match
+        if len(incoming_tokens) < min_tokens or len(candidate_tokens) < min_tokens:
+            return False
+
+        incoming_token_set = set(incoming_tokens)
+        candidate_token_set = set(candidate_tokens)
+        token_jaccard = self._jaccard_similarity(incoming_token_set, candidate_token_set)
+        if token_jaccard < self.config.deduplication.token_jaccard_threshold:
+            return False
+
+        incoming_shingles = self._char_shingles(incoming_normalized)
+        candidate_shingles = self._char_shingles(candidate_normalized)
+        char_jaccard = self._jaccard_similarity(incoming_shingles, candidate_shingles)
+        if char_jaccard < self.config.deduplication.char_jaccard_threshold:
+            return False
+
+        edit_ratio = difflib.SequenceMatcher(
+            None,
+            incoming_normalized,
+            candidate_normalized,
+            autojunk=False,
+        ).ratio()
+        return edit_ratio >= self.config.deduplication.edit_ratio_threshold
+
+    def _deduplicate_table(self, table: pa.Table) -> tuple[pa.Table, dict[str, int]]:
+        if not self.config.deduplication.enabled or table.num_rows == 0:
+            return table, {"raw_rows": table.num_rows, "kept_rows": table.num_rows, "exact_drops": 0, "near_drops": 0}
+
+        rows = table.to_pylist()
+
+        seen_exact: set[str] = set()
+        kept_rows: list[dict[str, Any]] = []
+        normalized_texts: list[str] = []
+        token_lists: list[list[str]] = []
+        token_index: dict[str, list[int]] = {}
+        exact_drops = 0
+        near_drops = 0
+
+        for row in rows:
+            text = str(row["text"])
+            normalized = self._normalize_exact(text)
+            if not normalized:
+                continue
+
+            if normalized in seen_exact:
+                exact_drops += 1
+                continue
+
+            tokens = self._tokenize(normalized)
+            if not tokens:
+                continue
+
+            near_match = False
+            first_token = tokens[0]
+            candidate_indices = token_index.get(first_token, [])
+            for candidate_index in candidate_indices:
+                if self._is_near_duplicate(
+                    incoming_normalized=normalized,
+                    incoming_tokens=tokens,
+                    candidate_normalized=normalized_texts[candidate_index],
+                    candidate_tokens=token_lists[candidate_index],
+                ):
+                    near_match = True
+                    near_drops += 1
+                    break
+            if near_match:
+                continue
+
+            seen_exact.add(normalized)
+            kept_rows.append(row)
+            normalized_texts.append(normalized)
+            token_lists.append(tokens)
+            token_index.setdefault(first_token, []).append(len(kept_rows) - 1)
+
+        deduplicated_table = pa.Table.from_pylist(kept_rows, schema=table.schema)
+        stats = {
+            "raw_rows": table.num_rows,
+            "kept_rows": deduplicated_table.num_rows,
+            "exact_drops": exact_drops,
+            "near_drops": near_drops,
+        }
+        return deduplicated_table, stats
+
     def _preprocess_short_jokes(self, destination_dir: Path) -> Path:
         input_path = destination_dir / "shortjokes.csv"
         output_path = destination_dir / "data.parquet"
@@ -193,6 +314,7 @@ class JokesPipeline(BasePipeline):
         short_jokes_table = pq.read_table(short_jokes_path)
         r_jokes_table = pq.read_table(r_jokes_path)
         combined_table = pa.concat_tables([short_jokes_table, r_jokes_table])
+        combined_table, dedup_stats = self._deduplicate_table(combined_table)
 
         global_ids = pa.array(range(combined_table.num_rows), type=pa.int64())
         combined_table = combined_table.set_column(combined_table.schema.get_field_index("id"), "id", global_ids)
@@ -209,6 +331,10 @@ class JokesPipeline(BasePipeline):
         logger.info(
             "build.done",
             rows=combined_table.num_rows,
+            raw_rows=dedup_stats["raw_rows"],
+            dedup_enabled=self.config.deduplication.enabled,
+            dedup_exact_drops=dedup_stats["exact_drops"],
+            dedup_near_drops=dedup_stats["near_drops"],
             output_path=str(output_path),
         )
 

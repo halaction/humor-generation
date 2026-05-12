@@ -5,9 +5,18 @@ from src.paths import CONFIGS_DIR
 from src.settings import settings
 
 
+class JokesDeduplicationConfig(BaseModel):
+    enabled: bool = True
+    min_tokens_for_near_match: int = Field(default=4, ge=1)
+    token_jaccard_threshold: float = Field(default=0.92, ge=0.0, le=1.0)
+    char_jaccard_threshold: float = Field(default=0.90, ge=0.0, le=1.0)
+    edit_ratio_threshold: float = Field(default=0.94, ge=0.0, le=1.0)
+
+
 class JokesConfig(BaseModel):
     hf_config_name: str = "jokes"
     data_filename: str = "jokes.parquet"
+    deduplication: JokesDeduplicationConfig = Field(default_factory=JokesDeduplicationConfig)
 
 
 class EmbeddingsConfig(BaseModel):
