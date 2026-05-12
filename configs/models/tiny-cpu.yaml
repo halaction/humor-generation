@@ -1,5 +1,5 @@
 model_name_or_path: sshleifer/tiny-gpt2
-output_dir: data/checkpoints/mrvf-tiny
+output_dir: data/checkpoints/tiny
 dataset_name: halaction/humor-generation
 dataset_config_name: references
 train_split: train
