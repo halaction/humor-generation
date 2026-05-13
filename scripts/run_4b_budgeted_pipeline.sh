@@ -24,7 +24,7 @@ python -m scripts.generate_checkpoint_candidates \
   --split validation \
   --limit 100 \
   --batch-size 2 \
-  --max-new-tokens 128 \
+  --max-new-tokens 48 \
   --torch-dtype bfloat16 \
   --no-enable-thinking
 
@@ -39,7 +39,7 @@ python -m scripts.generate_checkpoint_candidates \
   --torch-dtype bfloat16 \
   --enable-thinking \
   --force-close-thinking \
-  --answer-continuation-max-new-tokens 128
+  --answer-continuation-max-new-tokens 48
 
 python -m scripts.generate_checkpoint_candidates \
   --model-or-checkpoint "${CHECKPOINT_DIR}" \
@@ -52,7 +52,7 @@ python -m scripts.generate_checkpoint_candidates \
   --torch-dtype bfloat16 \
   --enable-thinking \
   --force-close-thinking \
-  --answer-continuation-max-new-tokens 128
+  --answer-continuation-max-new-tokens 48
 
 python -m scripts.generate_checkpoint_candidates \
   --model-or-checkpoint "${CHECKPOINT_DIR}" \
@@ -61,7 +61,7 @@ python -m scripts.generate_checkpoint_candidates \
   --split validation \
   --limit 100 \
   --batch-size 2 \
-  --max-new-tokens 128 \
+  --max-new-tokens 48 \
   --torch-dtype bfloat16 \
   --no-enable-thinking
 

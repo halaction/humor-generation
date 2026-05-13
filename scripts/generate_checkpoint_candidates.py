@@ -17,6 +17,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from src.config import config
 from src.models import CandidateOutput
 from src.paths import DATA_DIR
+from src.templates import environment
 from src.training.data import prepare_mrvf_dataset
 
 
@@ -230,6 +231,11 @@ def _format_prompts(tokenizer: Any, prompts: list[str], use_chat_template: bool,
     return formatted
 
 
+def _render_candidate_prompt(row: dict[str, Any], prompt_template: str) -> str:
+    template = environment.get_template(prompt_template)
+    return template.render(keywords=list(row["keywords"]), prompt=row["prompt"]).strip()
+
+
 def _vllm_generate_texts(
     *,
     llm: Any,
@@ -305,7 +311,7 @@ def generate_candidates(args: argparse.Namespace) -> Path:
         batch = [dict(row) for row in dataset.select(range(start, min(start + args.batch_size, len(dataset))))]
         prompt_texts = _format_prompts(
             tokenizer=tokenizer,
-            prompts=[row["prompt"] for row in batch],
+            prompts=[_render_candidate_prompt(row, args.prompt_template) for row in batch],
             use_chat_template=args.use_chat_template,
             enable_thinking=args.enable_thinking,
         )
@@ -445,6 +451,7 @@ def main() -> None:
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--torch-dtype", choices=["auto", "float16", "bfloat16", "float32"], default="auto")
     parser.add_argument("--use-chat-template", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--prompt-template", default="candidate_prompt.j2")
     parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--strip-thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--force-close-thinking", action=argparse.BooleanOptionalAction, default=False)
