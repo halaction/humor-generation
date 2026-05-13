@@ -189,6 +189,26 @@ def test_compute_losses_for_batch_backward_has_gradients(tmp_path: Path) -> None
     assert nonzero, "Expected at least one nonzero gradient."
 
 
+def test_prompt_relative_reward_changes_advantages_but_not_reference_loss(tmp_path: Path) -> None:
+    trainer = _build_trainer(tmp_path, num_generations=2)
+    batch_rows = [
+        {
+            "prompt": "Write a joke about cats",
+            "references": ["joke one", "joke two"],
+        }
+    ]
+
+    _, plain_metrics, _ = trainer._compute_losses_for_batch(batch_rows)
+    trainer.cfg.reward_baseline_mode = "prompt_relative"
+    _, relative_metrics, _ = trainer._compute_losses_for_batch(batch_rows)
+
+    assert "prompt_baseline_reward_mean" in relative_metrics
+    assert "relative_reward_mean" in relative_metrics
+    assert relative_metrics["reward_mean"] == relative_metrics["relative_reward_mean"]
+    assert relative_metrics["reward_mean"] != plain_metrics["reward_mean"]
+    assert relative_metrics["reference_loss"] == pytest.approx(plain_metrics["reference_loss"])
+
+
 def test_group_sample_log_includes_all_generations(tmp_path: Path) -> None:
     trainer = _build_trainer(tmp_path, num_generations=2)
     trainer.cfg.logging_steps = 1

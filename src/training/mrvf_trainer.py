@@ -468,6 +468,7 @@ class MRVFTrainer:
         references = [row["references"][: self.cfg.num_reference_samples] for row in batch_rows]
         trace_batch = self._generate_trace_batch(prompts, references)
         grouped_size = len(batch_rows)
+        answer_prefix_ids = self.tokenizer(self.cfg.answer_prefix, add_special_tokens=False)["input_ids"]
 
         trace_logprob = self._trace_logprobs(trace_batch, self.model)
         with torch.no_grad():
@@ -479,6 +480,24 @@ class MRVFTrainer:
                 max_reference_length=self.cfg.max_reference_length,
                 length_normalization=self.cfg.reference_length_normalization,
             )
+            prompt_baseline_scores: torch.Tensor | None = None
+            if self.cfg.reward_baseline_mode == "prompt_relative":
+                prompt_prefix_ids = [
+                    trace_batch.prompt_ids[index * self.cfg.num_generations] + answer_prefix_ids
+                    for index in range(grouped_size)
+                ]
+                prompt_baseline_outputs = teacher_forced_reference_logps_from_ids(
+                    model=self.model,
+                    tokenizer=self.tokenizer,
+                    prefix_ids_per_sample=prompt_prefix_ids,
+                    references=references,
+                    max_reference_length=self.cfg.max_reference_length,
+                    length_normalization=self.cfg.reference_length_normalization,
+                )
+                if self.cfg.objective_mode == "log_mass_surrogate":
+                    prompt_baseline_scores = prompt_baseline_outputs.log_mass_normalized
+                else:
+                    prompt_baseline_scores = prompt_baseline_outputs.log_mass_raw
         ref_outputs = teacher_forced_reference_logps_from_ids(
             model=self.model,
             tokenizer=self.tokenizer,
@@ -494,6 +513,11 @@ class MRVFTrainer:
             grouped_scores_for_reward = reward_outputs.log_mass_raw.view(grouped_size, self.cfg.num_generations)
 
         if self.cfg.reward_transform == "log_mass":
+            if self.cfg.reward_baseline_mode == "prompt_relative":
+                if prompt_baseline_scores is None:
+                    msg = "Prompt baseline scores were not computed."
+                    raise RuntimeError(msg)
+                grouped_scores_for_reward = grouped_scores_for_reward - prompt_baseline_scores.view(grouped_size, 1)
             rewards = grouped_scores_for_reward.reshape(-1)
         else:
             centered = grouped_scores_for_reward - grouped_scores_for_reward.max(dim=1, keepdim=True).values
@@ -574,6 +598,13 @@ class MRVFTrainer:
             "effective_reference_prefix_length_mean": float(reference_prefix_lengths.mean().item()),
             "effective_reference_prefix_length_max": float(reference_prefix_lengths.max().item()),
         }
+        if self.cfg.reward_baseline_mode == "prompt_relative":
+            if prompt_baseline_scores is None:
+                msg = "Prompt baseline scores were not computed."
+                raise RuntimeError(msg)
+            metrics["prompt_baseline_reward_mean"] = float(prompt_baseline_scores.detach().mean().item())
+            metrics["relative_reward_mean"] = float(rewards_for_adv.mean().item())
+            metrics["relative_reward_std"] = float(rewards_for_adv.std(unbiased=False).item())
         sample: BatchDebugSample | None = None
         if batch_rows:
             first_group_end = min(self.cfg.num_generations, len(trace_batch.trace_texts))

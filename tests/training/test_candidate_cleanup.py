@@ -4,7 +4,14 @@ pytest.importorskip("torch")
 pytest.importorskip("pyarrow")
 pytest.importorskip("datasets")
 
-from scripts.generate_checkpoint_candidates import _candidate_quality_summary, _clean_candidate_text, _has_unclosed_think
+from scripts.generate_checkpoint_candidates import (
+    _candidate_quality_summary,
+    _clean_candidate_text,
+    _has_unclosed_think,
+    _is_lora_checkpoint,
+    _read_lora_base_model,
+    _read_lora_rank,
+)
 from src.models import CandidateOutput
 
 
@@ -45,3 +52,16 @@ def test_candidate_quality_summary_counts_bad_outputs() -> None:
     assert summary["contains_think_count"] == 1
     assert summary["contains_wrapper_count"] == 1
     assert summary["contains_note_count"] == 1
+
+
+def test_lora_checkpoint_metadata_detection(tmp_path) -> None:
+    checkpoint = tmp_path / "adapter"
+    checkpoint.mkdir()
+    (checkpoint / "adapter_config.json").write_text(
+        '{"base_model_name_or_path": "Qwen/Qwen3-1.7B", "r": 32}',
+        encoding="utf-8",
+    )
+
+    assert _is_lora_checkpoint(str(checkpoint))
+    assert _read_lora_base_model(str(checkpoint)) == "Qwen/Qwen3-1.7B"
+    assert _read_lora_rank(str(checkpoint)) == 32

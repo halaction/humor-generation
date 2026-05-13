@@ -32,10 +32,17 @@ def test_default_config_is_stable_surrogate_mode() -> None:
     cfg = MRVFConfig()
     assert cfg.objective_mode == "log_mass_surrogate"
     assert cfg.reward_transform == "log_mass"
+    assert cfg.reward_baseline_mode == "none"
     assert cfg.reference_length_normalization == "token_mean"
     assert cfg.use_kl is False
     assert cfg.beta == 0.0
     cfg.validate()
+
+
+def test_prompt_relative_reward_requires_log_mass_transform() -> None:
+    cfg = MRVFConfig(reward_baseline_mode="prompt_relative", reward_transform="centered_prob_mass")
+    with pytest.raises(ValueError, match="prompt_relative"):
+        cfg.validate()
 
 
 def test_qwen3_17b_hpc_config_is_valid() -> None:

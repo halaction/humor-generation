@@ -24,6 +24,7 @@ class MRVFConfig:
     num_reference_samples: int = 5
     objective_mode: Literal["exact_scaled", "log_mass_surrogate", "mrvf_lite"] = "log_mass_surrogate"
     reward_transform: Literal["log_mass", "centered_prob_mass"] = "log_mass"
+    reward_baseline_mode: Literal["none", "prompt_relative"] = "none"
     advantage_mode: Literal["loo", "grpo_zscore"] = "loo"
     reference_length_normalization: Literal["none", "token_mean", "sqrt"] = "token_mean"
     trace_loss_coef: float = 1.0
@@ -90,6 +91,9 @@ class MRVFConfig:
             raise ValueError(msg)
         if self.objective_mode == "exact_scaled" and self.reference_length_normalization != "none":
             msg = "`objective_mode=exact_scaled` requires `reference_length_normalization=none`."
+            raise ValueError(msg)
+        if self.reward_baseline_mode == "prompt_relative" and self.reward_transform != "log_mass":
+            msg = "`reward_baseline_mode=prompt_relative` currently requires `reward_transform=log_mass`."
             raise ValueError(msg)
         if self.eval_every_steps < 0 or self.eval_sample_size < 0:
             msg = "`eval_every_steps` and `eval_sample_size` must be non-negative."

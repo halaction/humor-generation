@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,90 @@ def _load_model(model_or_checkpoint: str, torch_dtype: str) -> tuple[Any, Any]:
     return model, tokenizer
 
 
+def _is_lora_checkpoint(path_or_id: str) -> bool:
+    return (Path(path_or_id) / "adapter_config.json").exists()
+
+
+def _read_lora_base_model(path_or_id: str) -> str | None:
+    adapter_config_path = Path(path_or_id) / "adapter_config.json"
+    if not adapter_config_path.exists():
+        return None
+    try:
+        data = json.loads(adapter_config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    base_model = data.get("base_model_name_or_path")
+    return base_model if isinstance(base_model, str) and base_model else None
+
+
+def _read_lora_rank(path_or_id: str) -> int | None:
+    adapter_config_path = Path(path_or_id) / "adapter_config.json"
+    if not adapter_config_path.exists():
+        return None
+    try:
+        data = json.loads(adapter_config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    rank = data.get("r")
+    return int(rank) if isinstance(rank, int) and rank > 0 else None
+
+
+def _load_vllm(
+    *,
+    model_or_checkpoint: str,
+    base_model_override: str | None,
+    tokenizer_name: str,
+    torch_dtype: str,
+    max_model_len: int | None,
+    gpu_memory_utilization: float,
+    max_lora_rank: int | None,
+) -> tuple[Any, Any, Any | None]:
+    try:
+        from vllm import LLM
+        from vllm.lora.request import LoRARequest
+    except ImportError as error:  # pragma: no cover
+        msg = "`--generation-backend=vllm` requires the `vllm` package."
+        raise RuntimeError(msg) from error
+
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
+
+    lora_request = None
+    model_name = model_or_checkpoint
+    enable_lora = _is_lora_checkpoint(model_or_checkpoint)
+    if enable_lora:
+        base_model = base_model_override or _read_lora_base_model(model_or_checkpoint)
+        if base_model is None:
+            msg = (
+                "`--generation-backend=vllm` with a LoRA checkpoint requires adapter_config.json "
+                "with base_model_name_or_path, or pass a full base-model path as --vllm-base-model."
+            )
+            raise ValueError(msg)
+        model_name = base_model
+        adapter_rank = _read_lora_rank(model_or_checkpoint)
+        if max_lora_rank is None:
+            max_lora_rank = adapter_rank
+        lora_request = LoRARequest("candidate_adapter", 1, model_or_checkpoint)
+
+    dtype = torch_dtype if torch_dtype != "auto" else "auto"
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "tokenizer": tokenizer_name,
+        "dtype": dtype,
+        "enable_lora": enable_lora,
+        "gpu_memory_utilization": gpu_memory_utilization,
+    }
+    if max_model_len is not None:
+        kwargs["max_model_len"] = max_model_len
+    if max_lora_rank is not None:
+        kwargs["max_lora_rank"] = max_lora_rank
+
+    llm = LLM(**kwargs)
+    return llm, tokenizer, lora_request
+
+
 def _format_prompts(tokenizer: Any, prompts: list[str], use_chat_template: bool, enable_thinking: bool) -> list[str]:
     if not use_chat_template:
         return prompts
@@ -143,6 +228,33 @@ def _format_prompts(tokenizer: Any, prompts: list[str], use_chat_template: bool,
         except TypeError:
             formatted.append(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))
     return formatted
+
+
+def _vllm_generate_texts(
+    *,
+    llm: Any,
+    prompts: list[str],
+    max_tokens: int,
+    temperature: float,
+    top_p: float,
+    lora_request: Any | None,
+) -> list[str]:
+    try:
+        from vllm import SamplingParams
+    except ImportError as error:  # pragma: no cover
+        msg = "`--generation-backend=vllm` requires the `vllm` package."
+        raise RuntimeError(msg) from error
+
+    sampling_params = SamplingParams(
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+    )
+    if lora_request is None:
+        outputs = llm.generate(prompts, sampling_params=sampling_params)
+    else:
+        outputs = llm.generate(prompts, sampling_params=sampling_params, lora_request=lora_request)
+    return [output.outputs[0].text for output in outputs]
 
 
 def _write_candidates(rows: list[CandidateOutput], output_dir: Path, shard_size: int) -> None:
@@ -171,8 +283,22 @@ def generate_candidates(args: argparse.Namespace) -> Path:
     if args.limit is not None:
         dataset = Dataset.from_list([dict(row) for row in dataset.select(range(min(args.limit, len(dataset))))])
 
-    model, tokenizer = _load_model(args.model_or_checkpoint, torch_dtype=args.torch_dtype)
-    device = next(model.parameters()).device
+    if args.generation_backend == "vllm":
+        tokenizer_name = args.vllm_base_model or _read_lora_base_model(args.model_or_checkpoint) or args.model_or_checkpoint
+        model, tokenizer, lora_request = _load_vllm(
+            model_or_checkpoint=args.model_or_checkpoint,
+            base_model_override=args.vllm_base_model,
+            tokenizer_name=tokenizer_name,
+            torch_dtype=args.torch_dtype,
+            max_model_len=args.vllm_max_model_len,
+            gpu_memory_utilization=args.vllm_gpu_memory_utilization,
+            max_lora_rank=args.vllm_max_lora_rank,
+        )
+        device = None
+    else:
+        model, tokenizer = _load_model(args.model_or_checkpoint, torch_dtype=args.torch_dtype)
+        lora_request = None
+        device = next(model.parameters()).device
 
     rows: list[CandidateOutput] = []
     for start in tqdm(range(0, len(dataset), args.batch_size), desc=f"Generate {model_label} candidates"):
@@ -183,24 +309,36 @@ def generate_candidates(args: argparse.Namespace) -> Path:
             use_chat_template=args.use_chat_template,
             enable_thinking=args.enable_thinking,
         )
-        encoded = tokenizer(prompt_texts, padding=True, add_special_tokens=False, return_tensors="pt").to(device)
-        input_width = encoded["input_ids"].shape[1]
-        with torch.no_grad():
-            generation_kwargs: dict[str, Any] = {
-                "do_sample": args.temperature > 0,
-                "top_p": args.top_p,
-                "max_new_tokens": args.max_new_tokens,
-                "pad_token_id": tokenizer.pad_token_id,
-            }
-            if args.temperature > 0:
-                generation_kwargs["temperature"] = args.temperature
-            generated = model.generate(**encoded, **generation_kwargs)
-        completions = generated[:, input_width:]
-        completion_ids = [
-            _nonpad_ids(row.tolist(), tokenizer.pad_token_id)
-            for row in completions
-        ]
-        texts = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
+        if args.generation_backend == "vllm":
+            texts = _vllm_generate_texts(
+                llm=model,
+                prompts=prompt_texts,
+                max_tokens=args.max_new_tokens,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                lora_request=lora_request,
+            )
+            completion_ids: list[list[int]] | None = None
+            encoded = None
+        else:
+            encoded = tokenizer(prompt_texts, padding=True, add_special_tokens=False, return_tensors="pt").to(device)
+            input_width = encoded["input_ids"].shape[1]
+            with torch.no_grad():
+                generation_kwargs: dict[str, Any] = {
+                    "do_sample": args.temperature > 0,
+                    "top_p": args.top_p,
+                    "max_new_tokens": args.max_new_tokens,
+                    "pad_token_id": tokenizer.pad_token_id,
+                }
+                if args.temperature > 0:
+                    generation_kwargs["temperature"] = args.temperature
+                generated = model.generate(**encoded, **generation_kwargs)
+            completions = generated[:, input_width:]
+            completion_ids = [
+                _nonpad_ids(row.tolist(), tokenizer.pad_token_id)
+                for row in completions
+            ]
+            texts = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
         if args.force_close_thinking:
             suffix_ids = tokenizer(args.forced_thinking_suffix, add_special_tokens=False)["input_ids"]
             needs_continuation = [
@@ -209,48 +347,71 @@ def generate_candidates(args: argparse.Namespace) -> Path:
                 if _has_unclosed_think(text)
             ]
             if needs_continuation and args.answer_continuation_max_new_tokens > 0:
-                prompt_ids = []
-                for row_ids, row_mask in zip(
-                    encoded["input_ids"].tolist(),
-                    encoded["attention_mask"].tolist(),
-                    strict=True,
-                ):
-                    prompt_ids.append(
-                        [token_id for token_id, mask in zip(row_ids, row_mask, strict=True) if mask == 1]
+                if args.generation_backend == "vllm":
+                    continuation_prompts = [
+                        prompt_texts[idx] + texts[idx] + args.forced_thinking_suffix
+                        for idx in needs_continuation
+                    ]
+                    continuation_texts = _vllm_generate_texts(
+                        llm=model,
+                        prompts=continuation_prompts,
+                        max_tokens=args.answer_continuation_max_new_tokens,
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        lora_request=lora_request,
                     )
-                continuation_inputs = [
-                    prompt_ids[idx] + completion_ids[idx] + suffix_ids
-                    for idx in needs_continuation
-                ]
-                max_len = max(len(item) for item in continuation_inputs)
-                padded = []
-                attention = []
-                for ids in continuation_inputs:
-                    pad = max_len - len(ids)
-                    padded.append([tokenizer.pad_token_id] * pad + ids)
-                    attention.append([0] * pad + [1] * len(ids))
-                cont_encoded = {
-                    "input_ids": torch.tensor(padded, dtype=torch.long, device=device),
-                    "attention_mask": torch.tensor(attention, dtype=torch.long, device=device),
-                }
-                with torch.no_grad():
-                    cont_kwargs: dict[str, Any] = {
-                        "do_sample": args.temperature > 0,
-                        "top_p": args.top_p,
-                        "max_new_tokens": args.answer_continuation_max_new_tokens,
-                        "pad_token_id": tokenizer.pad_token_id,
+                    for local_idx, dataset_idx in enumerate(needs_continuation):
+                        texts[dataset_idx] = (
+                            texts[dataset_idx] + args.forced_thinking_suffix + continuation_texts[local_idx]
+                        )
+                else:
+                    if completion_ids is None or encoded is None:
+                        msg = "Transformers continuation requires encoded prompts and completion IDs."
+                        raise RuntimeError(msg)
+                    prompt_ids = []
+                    for row_ids, row_mask in zip(
+                        encoded["input_ids"].tolist(),
+                        encoded["attention_mask"].tolist(),
+                        strict=True,
+                    ):
+                        prompt_ids.append(
+                            [token_id for token_id, mask in zip(row_ids, row_mask, strict=True) if mask == 1]
+                        )
+                    continuation_inputs = [
+                        prompt_ids[idx] + completion_ids[idx] + suffix_ids
+                        for idx in needs_continuation
+                    ]
+                    max_len = max(len(item) for item in continuation_inputs)
+                    padded = []
+                    attention = []
+                    for ids in continuation_inputs:
+                        pad = max_len - len(ids)
+                        padded.append([tokenizer.pad_token_id] * pad + ids)
+                        attention.append([0] * pad + [1] * len(ids))
+                    cont_encoded = {
+                        "input_ids": torch.tensor(padded, dtype=torch.long, device=device),
+                        "attention_mask": torch.tensor(attention, dtype=torch.long, device=device),
                     }
-                    if args.temperature > 0:
-                        cont_kwargs["temperature"] = args.temperature
-                    continued = model.generate(**cont_encoded, **cont_kwargs)
-                cont_ids = continued[:, max_len:]
-                cont_completion_ids = [
-                    _nonpad_ids(row.tolist(), tokenizer.pad_token_id)
-                    for row in cont_ids
-                ]
-                for local_idx, dataset_idx in enumerate(needs_continuation):
-                    completion_ids[dataset_idx] = completion_ids[dataset_idx] + suffix_ids + cont_completion_ids[local_idx]
-                texts = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
+                    with torch.no_grad():
+                        cont_kwargs: dict[str, Any] = {
+                            "do_sample": args.temperature > 0,
+                            "top_p": args.top_p,
+                            "max_new_tokens": args.answer_continuation_max_new_tokens,
+                            "pad_token_id": tokenizer.pad_token_id,
+                        }
+                        if args.temperature > 0:
+                            cont_kwargs["temperature"] = args.temperature
+                        continued = model.generate(**cont_encoded, **cont_kwargs)
+                    cont_ids = continued[:, max_len:]
+                    cont_completion_ids = [
+                        _nonpad_ids(row.tolist(), tokenizer.pad_token_id)
+                        for row in cont_ids
+                    ]
+                    for local_idx, dataset_idx in enumerate(needs_continuation):
+                        completion_ids[dataset_idx] = (
+                            completion_ids[dataset_idx] + suffix_ids + cont_completion_ids[local_idx]
+                        )
+                    texts = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
         for row, text in zip(batch, texts, strict=True):
             cleaned = _clean_candidate_text(text, strip_thinking=args.strip_thinking)
             rows.append(
@@ -289,6 +450,11 @@ def main() -> None:
     parser.add_argument("--force-close-thinking", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--forced-thinking-suffix", default=DEFAULT_FORCED_THINKING_SUFFIX)
     parser.add_argument("--answer-continuation-max-new-tokens", type=int, default=128)
+    parser.add_argument("--generation-backend", choices=["transformers", "vllm"], default="transformers")
+    parser.add_argument("--vllm-base-model")
+    parser.add_argument("--vllm-max-model-len", type=int)
+    parser.add_argument("--vllm-gpu-memory-utilization", type=float, default=0.9)
+    parser.add_argument("--vllm-max-lora-rank", type=int)
     args = parser.parse_args()
 
     split_dir = generate_candidates(args)
