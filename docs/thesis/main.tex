@@ -69,17 +69,12 @@
   \hypersetup{linkcolor=black}
   \tableofcontents
 }
-\clearpage
 
-\chapter*{Аннотация}
-\phantomsection
-\addcontentsline{toc}{chapter}{Аннотация}
-\clearpage
+% \chapter*{Аннотация}
+% \phantomsection
+% \addcontentsline{toc}{chapter}{Аннотация}
 
-\chapter*{Ключевые слова}
-\phantomsection
-\addcontentsline{toc}{chapter}{Ключевые слова}
-\clearpage
+\input{chapters/abstract}
 
 \chapter*{Введение}
 \phantomsection
@@ -94,6 +89,10 @@
 \chapter{Методология}
 
 \input{chapters/methodology}
+
+\chapter{Эксперименты}
+
+\input{chapters/experiments}
 
 \chapter{Результаты}
 

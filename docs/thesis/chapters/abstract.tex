@@ -1,0 +1,31 @@
+\chapter*{Аннотация}
+\phantomsection
+\addcontentsline{toc}{chapter}{Аннотация}
+
+В данной выпускной квалификационной работе рассматривается задача генерации юмора как пример генерации текста в области без надежных внешних верификаторов. В отличие от задач программирования или математики, качество шутки нельзя свести к проверке единственного правильного ответа: один и тот же запрос может иметь множество допустимых продолжений, а оценка юмора остается субъективной и шумной.
+
+Цель работы состоит в разработке и обосновании подхода к обучению рассуждению для генерации юмора без использования внешних верификаторов. В качестве основного направления предлагается расширение verifier-free обучения с подкреплением, в котором целевая функция оптимизирует не вероятность одного эталонного ответа, а суммарную вероятность множества допустимых шуток для заданного запроса.
+
+В работе проведен обзор исследований по автоматической генерации юмора, обучению с подкреплением для языковых моделей, методам обучения рассуждению и подходам без внешних верификаторов. Также разработан пилотный программный конвейер для построения набора данных: сбор корпуса шуток, построение эмбеддингов, извлечение ключевых слов, поиск близких шуток, дедупликация, формирование наборов запросов и эталонных ответов, а также автоматическая попарная оценка с агрегацией результатов.
+
+Полученные результаты показывают практическую реализуемость предложенной постановки. Был собран корпус из примерно \(664\,000\) шуток, реализован процесс построения наборов запросов и эталонных ответов, пригодных для дальнейшего обучения.
+
+\textbf{Ключевые слова:} генерация юмора, большие языковые модели, обучение с подкреплением, обучение рассуждению, verifier-free reinforcement learning.
+
+\clearpage
+
+\chapter*{Abstract}
+\phantomsection
+\addcontentsline{toc}{chapter}{Abstract}
+
+This thesis studies humor generation as a text generation problem in a non-verifiable domain. Unlike programming or mathematics, the quality of a joke cannot be reduced to checking a single correct answer: the same prompt may admit many valid continuations, while humor evaluation remains subjective and noisy.
+
+The goal of the thesis is to develop and justify an approach to reasoning-oriented training for humor generation without external verifiers. The proposed direction is a multi-reference extension of verifier-free reinforcement learning, where the objective optimizes not the probability of one reference answer, but the total probability mass assigned to a set of acceptable jokes for a given prompt.
+
+The thesis reviews prior work on computational humor generation, reinforcement learning for language models, reasoning-oriented post-training, and verifier-free learning methods. It also introduces a pilot software pipeline for constructing a multi-reference dataset: joke corpus collection, embedding generation, keyword extraction, nearest-neighbor retrieval, deduplication, prompt-reference set construction, and automatic pairwise evaluation with aggregated model comparison.
+
+The obtained results demonstrate the practical feasibility of the proposed setup. A corpus of approximately \(664{,}000\) jokes was collected, the prompt-reference construction workflow was implemented, and deduplicated multi-reference data suitable for further training was produced.
+
+\textbf{Keywords:} humor generation, large language models, reinforcement learning, reasoning training, verifier-free reinforcement learning.
+
+\clearpage
