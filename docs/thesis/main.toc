@@ -44,28 +44,27 @@
 \contentsline {section}{\numberline {3.5}Протокол генерации кандидатов}{48}{section.3.5}%
 \contentsline {section}{\numberline {3.6}Протокол автоматической оценки}{49}{section.3.6}%
 \contentsline {section}{\numberline {3.7}Сохранение артефактов и воспроизводимость}{50}{section.3.7}%
-\contentsline {section}{\numberline {3.8}Статус текущего экспериментального прогона}{50}{section.3.8}%
-\contentsline {chapter}{\numberline {4}Результаты}{52}{chapter.4}%
-\contentsline {section}{\numberline {4.1}Статус результатов}{52}{section.4.1}%
-\contentsline {section}{\numberline {4.2}Диагностика обучения}{52}{section.4.2}%
-\contentsline {section}{\numberline {4.3}Качество исправленного формата генерации}{53}{section.4.3}%
-\contentsline {section}{\numberline {4.4}Автоматическая оценка Qwen3-1.7B}{54}{section.4.4}%
-\contentsline {section}{\numberline {4.5}Автоматическая оценка Qwen3-4B}{55}{section.4.5}%
-\contentsline {section}{\numberline {4.6}Попарный анализ Qwen3-4B}{55}{section.4.6}%
-\contentsline {section}{\numberline {4.7}Сравнение основных гипотез}{56}{section.4.7}%
-\contentsline {section}{\numberline {4.8}Интерпретация результатов}{57}{section.4.8}%
-\contentsline {section}{\numberline {4.9}Ограничения результатов}{58}{section.4.9}%
-\contentsline {section}{\numberline {4.10}Выводы по экспериментальной части}{59}{section.4.10}%
-\contentsline {chapter}{Заключение}{60}{section*.22}%
-\contentsline {chapter}{Список литературы}{63}{chapter*.23}%
-\contentsline {chapter}{\numberline {\CYRA }Основные артефакты работы}{67}{appendix.A}%
-\contentsline {section}{\numberline {\CYRA .1}Репозитории и данные}{67}{section.A.1}%
-\contentsline {section}{\numberline {\CYRA .2}Структура программного конвейера}{67}{section.A.2}%
-\contentsline {chapter}{\numberline {\CYRB }Шаблоны запросов}{69}{appendix.B}%
-\contentsline {section}{\numberline {\CYRB .1}Шаблон для построения эталонных запросов}{69}{section.B.1}%
-\contentsline {section}{\numberline {\CYRB .2}Инструкции для векторного поиска}{69}{section.B.2}%
-\contentsline {section}{\numberline {\CYRB .3}Шаблон генерации кандидатов}{70}{section.B.3}%
-\contentsline {section}{\numberline {\CYRB .4}Оценочный запрос}{70}{section.B.4}%
-\contentsline {chapter}{\numberline {\CYRV }Дополнительные сведения об экспериментах}{71}{appendix.C}%
-\contentsline {section}{\numberline {\CYRV .1}Обучающие конфигурации}{71}{section.C.1}%
-\contentsline {section}{\numberline {\CYRV .2}Сравниваемые варианты моделей}{71}{section.C.2}%
+\contentsline {chapter}{\numberline {4}Результаты}{51}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Статус результатов}{51}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Диагностика обучения}{51}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Качество исправленного формата генерации}{52}{section.4.3}%
+\contentsline {section}{\numberline {4.4}Автоматическая оценка Qwen3-1.7B}{53}{section.4.4}%
+\contentsline {section}{\numberline {4.5}Автоматическая оценка Qwen3-4B}{54}{section.4.5}%
+\contentsline {section}{\numberline {4.6}Попарный анализ Qwen3-4B}{54}{section.4.6}%
+\contentsline {section}{\numberline {4.7}Сравнение основных гипотез}{55}{section.4.7}%
+\contentsline {section}{\numberline {4.8}Интерпретация результатов}{56}{section.4.8}%
+\contentsline {section}{\numberline {4.9}Ограничения результатов}{57}{section.4.9}%
+\contentsline {section}{\numberline {4.10}Выводы по экспериментальной части}{58}{section.4.10}%
+\contentsline {chapter}{Заключение}{59}{section*.22}%
+\contentsline {chapter}{Список литературы}{62}{chapter*.23}%
+\contentsline {chapter}{\numberline {\CYRA }Основные артефакты работы}{66}{appendix.A}%
+\contentsline {section}{\numberline {\CYRA .1}Репозитории и данные}{66}{section.A.1}%
+\contentsline {section}{\numberline {\CYRA .2}Структура программного конвейера}{66}{section.A.2}%
+\contentsline {chapter}{\numberline {\CYRB }Шаблоны запросов}{68}{appendix.B}%
+\contentsline {section}{\numberline {\CYRB .1}Шаблон для построения эталонных запросов}{68}{section.B.1}%
+\contentsline {section}{\numberline {\CYRB .2}Инструкции для векторного поиска}{68}{section.B.2}%
+\contentsline {section}{\numberline {\CYRB .3}Шаблон генерации кандидатов}{69}{section.B.3}%
+\contentsline {section}{\numberline {\CYRB .4}Оценочный запрос}{69}{section.B.4}%
+\contentsline {chapter}{\numberline {\CYRV }Дополнительные сведения об экспериментах}{70}{appendix.C}%
+\contentsline {section}{\numberline {\CYRV .1}Обучающие конфигурации}{70}{section.C.1}%
+\contentsline {section}{\numberline {\CYRV .2}Сравниваемые варианты моделей}{70}{section.C.2}%
