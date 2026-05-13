@@ -34,6 +34,8 @@
 
 \begin{table}[h]
     \centering
+    \caption{Основные компоненты программного конвейера}
+    \label{tab:appendix-code-structure}
     \begingroup
     \setlength{\tabcolsep}{4pt}
     \renewcommand{\arraystretch}{1.15}
@@ -53,8 +55,6 @@
         \hline
     \end{tabularx}
     \endgroup
-    \caption{Основные компоненты программного конвейера}
-    \label{tab:appendix-code-structure}
 \end{table}
 
 \chapter{Шаблоны запросов}
@@ -114,6 +114,8 @@
 
 \begin{table}[h]
     \centering
+    \caption{Параметры финальных MRVF-запусков}
+    \label{tab:appendix-training-configs}
     \begin{tabular}{lcc}
         \hline
         Параметр                      & Qwen3-1.7B         & Qwen3-4B           \\
@@ -132,8 +134,6 @@
         Нормировка преимущества       & GRPO               & GRPO               \\
         \hline
     \end{tabular}
-    \caption{Параметры финальных MRVF-запусков}
-    \label{tab:appendix-training-configs}
 \end{table}
 
 \section{Сравниваемые варианты моделей}
@@ -142,6 +142,8 @@
 
 \begin{table}[h]
     \centering
+    \caption{Варианты моделей в финальной оценке}
+    \label{tab:appendix-model-variants}
     \begin{tabular}{lll}
         \hline
         Группа & Модель                          & Описание                       \\
@@ -156,6 +158,4 @@
         4B     & \texttt{qwen3-4b-mrvf-think}    & MRVF с рассуждением            \\
         \hline
     \end{tabular}
-    \caption{Варианты моделей в финальной оценке}
-    \label{tab:appendix-model-variants}
 \end{table}

@@ -20,6 +20,8 @@
 
 \begin{table}[h]
     \centering
+    \caption{Объёмные характеристики данных, использованных в экспериментах}
+    \label{tab:experiment-data}
     \begin{tabular}{lr}
         \hline
         Компонент                                & Количество           \\
@@ -32,8 +34,6 @@
         Число эталонов в обучении на один запрос & 2                    \\
         \hline
     \end{tabular}
-    \caption{Объёмные характеристики данных, использованных в экспериментах}
-    \label{tab:experiment-data}
 \end{table}
 
 \section{Обучаемые модели}
@@ -50,6 +50,8 @@
 
 \begin{table}[h]
     \centering
+    \caption{Основные параметры MRVF-обучения}
+    \label{tab:mrvf-training-configs}
     \begin{tabular}{lcc}
         \hline
         Параметр                      & Qwen3-1.7B         & Qwen3-4B           \\
@@ -70,8 +72,6 @@
         Тип чисел                     & bfloat16           & bfloat16           \\
         \hline
     \end{tabular}
-    \caption{Основные параметры MRVF-обучения}
-    \label{tab:mrvf-training-configs}
 \end{table}
 
 Для Qwen3-1.7B использовалась конфигурация \texttt{qwen3-17b-free-think-r5-budgeted.yaml}. Для Qwen3-4B использовалась конфигурация \texttt{qwen3-4b-free-think-r1-budgeted.yaml}. Обе конфигурации используют режим рассуждения Qwen, принудительное закрытие блока рассуждения и MRVF-цель на основе нормированной логарифмической массы.
@@ -92,6 +92,8 @@
 
 \begin{table}[h]
     \centering
+    \caption{Сравниваемые варианты моделей}
+    \label{tab:generation-modes}
     \begin{tabular}{llll}
         \hline
         Группа & Обозначение                                            & Обучение & Рассуждение \\
@@ -106,8 +108,6 @@
         4B     & \texttt{qwen3-4b-mrvf-r1-budgeted-nothink}             & MRVF     & нет         \\
         \hline
     \end{tabular}
-    \caption{Сравниваемые варианты моделей}
-    \label{tab:generation-modes}
 \end{table}
 
 \section{Протокол генерации кандидатов}
@@ -118,6 +118,8 @@
 
 \begin{table}[h]
     \centering
+    \caption{Параметры генерации кандидатных ответов}
+    \label{tab:generation-protocol}
     \begin{tabular}{lccc}
         \hline
         Группа & Режим           & Бюджет рассуждения & Бюджет финального ответа \\
@@ -128,8 +130,6 @@
         4B     & с рассуждением  & 1536 токенов       & 48 токенов               \\
         \hline
     \end{tabular}
-    \caption{Параметры генерации кандидатных ответов}
-    \label{tab:generation-protocol}
 \end{table}
 
 Во всех режимах с рассуждением использовалось принудительное закрытие блока рассуждения перед генерацией финального ответа. Это было необходимо для того, чтобы отделить внутреннее рассуждение модели от текста, который затем сравнивается моделью-оценщиком.
@@ -150,6 +150,8 @@
 
 \begin{table}[h]
     \centering
+    \caption{Объём автоматической попарной оценки}
+    \label{tab:evaluation-volume}
     \begin{tabular}{lrrr}
         \hline
         Группа     & Число моделей & Число запросов & Число сравнений \\
@@ -158,8 +160,6 @@
         Qwen3-4B   & 4             & 100            & 600             \\
         \hline
     \end{tabular}
-    \caption{Объём автоматической попарной оценки}
-    \label{tab:evaluation-volume}
 \end{table}
 
 По результатам попарных сравнений для каждой модели вычислялись число побед, число поражений, доля побед и оценка Брэдли--Терри. Эти величины используются в следующей главе для представления итоговых результатов.
