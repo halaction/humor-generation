@@ -11,39 +11,38 @@
 \contentsline {section}{\numberline {1.6}Обучение без внешнего верификатора}{15}{section.1.6}%
 \contentsline {section}{\numberline {1.7}Позиционирование данной работы}{16}{section.1.7}%
 \contentsline {chapter}{\numberline {2}Методология}{18}{chapter.2}%
-\contentsline {section}{\numberline {2.1}Границы исследования и статус реализации}{18}{section.2.1}%
+\contentsline {section}{\numberline {2.1}Общая схема метода и программного конвейера}{18}{section.2.1}%
 \contentsline {section}{\numberline {2.2}Построение набора данных}{19}{section.2.2}%
-\contentsline {section}{\numberline {2.3}Плотный индекс векторных представлений}{19}{section.2.3}%
-\contentsline {section}{\numberline {2.4}Извлечение ключевых слов как поиск слабых запросов}{20}{section.2.4}%
-\contentsline {section}{\numberline {2.5}Построение эталонных ответов через группировку ключевых слов и поиск}{21}{section.2.5}%
-\contentsline {subsection}{\numberline {2.5.1}Группировка ключевых слов и формирование запросов}{21}{subsection.2.5.1}%
-\contentsline {subsection}{\numberline {2.5.2}Поиск эталонных ответов с помощью индекса векторных представлений}{22}{subsection.2.5.2}%
-\contentsline {subsection}{\numberline {2.5.3}Удаление дублей и разбиение выборки}{23}{subsection.2.5.3}%
-\contentsline {section}{\numberline {2.6}Генерация кандидатов}{24}{section.2.6}%
-\contentsline {section}{\numberline {2.7}Оценка кандидатов}{24}{section.2.7}%
-\contentsline {subsection}{\numberline {2.7.1}Попарное сравнение}{24}{subsection.2.7.1}%
-\contentsline {subsection}{\numberline {2.7.2}Агрегация таблицы результатов}{25}{subsection.2.7.2}%
-\contentsline {section}{\numberline {2.8}Теоретическая рамка обучения MRVF}{25}{section.2.8}%
-\contentsline {subsection}{\numberline {2.8.1}Обозначения}{26}{subsection.2.8.1}%
-\contentsline {subsection}{\numberline {2.8.2}RL с верифицируемыми наградами}{27}{subsection.2.8.2}%
+\contentsline {subsection}{\numberline {2.2.1}Удаление дублей и почти совпадающих шуток}{19}{subsection.2.2.1}%
+\contentsline {section}{\numberline {2.3}Плотный индекс векторных представлений}{20}{section.2.3}%
+\contentsline {section}{\numberline {2.4}Извлечение ключевых слов как поиск слабых запросов}{21}{section.2.4}%
+\contentsline {section}{\numberline {2.5}Построение эталонных ответов через группировку ключевых слов и поиск}{22}{section.2.5}%
+\contentsline {subsection}{\numberline {2.5.1}Группировка ключевых слов и формирование запросов}{22}{subsection.2.5.1}%
+\contentsline {subsection}{\numberline {2.5.2}Поиск эталонных ответов с помощью индекса векторных представлений}{23}{subsection.2.5.2}%
+\contentsline {subsection}{\numberline {2.5.3}Дедупликация эталонных запросов и разбиение выборки}{24}{subsection.2.5.3}%
+\contentsline {section}{\numberline {2.6}Генерация кандидатов}{25}{section.2.6}%
+\contentsline {section}{\numberline {2.7}Оценка кандидатов}{25}{section.2.7}%
+\contentsline {subsection}{\numberline {2.7.1}Попарное сравнение}{25}{subsection.2.7.1}%
+\contentsline {subsection}{\numberline {2.7.2}Агрегация таблицы результатов}{26}{subsection.2.7.2}%
+\contentsline {section}{\numberline {2.8}Теоретическая рамка обучения MRVF}{27}{section.2.8}%
+\contentsline {subsection}{\numberline {2.8.1}Обозначения}{27}{subsection.2.8.1}%
+\contentsline {subsection}{\numberline {2.8.2}Обучение с верифицируемыми наградами}{28}{subsection.2.8.2}%
 \contentsline {subsection}{\numberline {2.8.3}VeriFree}{29}{subsection.2.8.3}%
-\contentsline {subsection}{\numberline {2.8.4}С несколькими эталонными ответами VeriFree}{31}{subsection.2.8.4}%
-\contentsline {subsection}{\numberline {2.8.5}Неполные наблюдаемые эталонные ответы}{33}{subsection.2.8.5}%
-\contentsline {paragraph}{Структурная неполнота.}{33}{subsection.2.8.5}%
-\contentsline {paragraph}{Вычислительная неполнота.}{34}{subsection.2.8.5}%
-\contentsline {subsection}{\numberline {2.8.6}Предлагаемый цикл обучения}{36}{subsection.2.8.6}%
-\contentsline {paragraph}{Рассуждение term.}{36}{subsection.2.8.6}%
-\contentsline {paragraph}{Эталонный ответ term.}{37}{subsection.2.8.6}%
-\contentsline {paragraph}{KL-слагаемое.}{37}{subsection.2.8.6}%
-\contentsline {subsection}{\numberline {2.8.7}Замечание о использование базового уровня}{38}{subsection.2.8.7}%
-\contentsline {chapter}{\numberline {3}Результаты}{40}{chapter.3}%
-\contentsline {section}{\numberline {3.1}Текущие результаты}{40}{section.3.1}%
-\contentsline {section}{\numberline {3.2}Планируемая процедура обучения}{40}{section.3.2}%
-\contentsline {section}{\numberline {3.3}Планируемые абляции}{42}{section.3.3}%
-\contentsline {chapter}{Заключение}{43}{section*.9}%
-\contentsline {chapter}{Список литературы}{45}{chapter*.10}%
-\contentsline {chapter}{\numberline {A}Реализованные шаблоны запросов}{49}{appendix.A}%
-\contentsline {section}{\numberline {A.1}Запрос для генерации эталонных ответов}{49}{section.A.1}%
-\contentsline {section}{\numberline {A.2}Инструкции для запросов для векторного поиска}{49}{section.A.2}%
-\contentsline {section}{\numberline {A.3}Оценочный запрос}{50}{section.A.3}%
-\contentsline {chapter}{\numberline {B}Дополнительные замечания о программной архитектуре}{51}{appendix.B}%
+\contentsline {subsection}{\numberline {2.8.4}Многореференсное обобщение VeriFree}{31}{subsection.2.8.4}%
+\contentsline {subsection}{\numberline {2.8.5}Логарифмическая масса как практическая цель}{34}{subsection.2.8.5}%
+\contentsline {subsection}{\numberline {2.8.6}Неполнота наблюдаемых эталонных ответов}{35}{subsection.2.8.6}%
+\contentsline {subsection}{\numberline {2.8.7}Использование подмножества эталонных ответов}{36}{subsection.2.8.7}%
+\contentsline {subsection}{\numberline {2.8.8}Цикл обучения}{37}{subsection.2.8.8}%
+\contentsline {paragraph}{Связь с RLOO.}{39}{subsection.2.8.8}%
+\contentsline {subsection}{\numberline {2.8.9}Замечание о базовых уровнях и остановке градиента}{39}{subsection.2.8.9}%
+\contentsline {chapter}{\numberline {3}Результаты}{42}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Текущие результаты}{42}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Планируемая процедура обучения}{42}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Планируемые абляции}{44}{section.3.3}%
+\contentsline {chapter}{Заключение}{45}{section*.9}%
+\contentsline {chapter}{Список литературы}{47}{chapter*.10}%
+\contentsline {chapter}{\numberline {A}Реализованные шаблоны запросов}{51}{appendix.A}%
+\contentsline {section}{\numberline {A.1}Запрос для генерации эталонных ответов}{51}{section.A.1}%
+\contentsline {section}{\numberline {A.2}Инструкции для запросов для векторного поиска}{51}{section.A.2}%
+\contentsline {section}{\numberline {A.3}Оценочный запрос}{52}{section.A.3}%
+\contentsline {chapter}{\numberline {B}Дополнительные замечания о программной архитектуре}{53}{appendix.B}%
