@@ -309,8 +309,6 @@ INPUT ./chapters/results.tex
 INPUT ./chapters/results.tex
 INPUT ./chapters/results.tex
 INPUT chapters/results.tex
-INPUT /Users/halaction/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/larm1000.tfm
-INPUT /Users/halaction/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/larm0700.tfm
 INPUT ./chapters/conclusion.tex
 INPUT ./chapters/conclusion.tex
 INPUT ./chapters/conclusion.tex
