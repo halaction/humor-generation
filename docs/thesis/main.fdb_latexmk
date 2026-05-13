@@ -1,14 +1,14 @@
 # Fdb version 4
-["bibtex main"] 1778691620.87889 "main.aux" "main.bbl" "main" 1778691622.4775 0
-  "./main-blx.bib" 1778691622.26713 343 343e095b1185c652a393dea4f8685441 ""
+["bibtex main"] 1778692453.0926 "main.aux" "main.bbl" "main" 1778692454.70709 0
+  "./main-blx.bib" 1778692454.49587 343 343e095b1185c652a393dea4f8685441 ""
   "./references.bib" 1778684361.53754 9370 056b20fdf43cb22a0ff8be6525d9cce2 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/bibtex/bst/biblatex/biblatex.bst" 1741388039 65510 b1f696b0241395385f422f67543c37fd ""
-  "main.aux" 1778691622.26238 20140 94948557ca80293491374f86358cadb3 "pdflatex"
+  "main.aux" 1778692454.49092 23357 810c30af33c751f157231b9fea1981a1 "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1778691620.94125 "/Users/halaction/Workspace/humor-generation/docs/thesis/main.tex" "main.pdf" "main" 1778691622.47765 0
+["pdflatex"] 1778692453.14575 "/Users/halaction/Workspace/humor-generation/docs/thesis/main.tex" "main.pdf" "main" 1778692454.70726 0
   "/Users/halaction/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/labx1440.tfm" 1775959422.63263 3304 6a543c07045572737981351171e0505e ""
   "/Users/halaction/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/labx1728.tfm" 1778684375.4468 3312 d199be9bd555944e2403193d58a0256a ""
   "/Users/halaction/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/labx2074.tfm" 1778684366.56226 3316 0992aa03d0c75498a0b6fb905d9eaab6 ""
@@ -19,7 +19,7 @@
   "/Users/halaction/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/larm2074.tfm" 1778684369.86385 3264 03c2b9e4787a40d3b9c197c38b93b558 ""
   "/Users/halaction/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/lati1440.tfm" 1778684376.85472 3528 460e6901416a816cf4afa844b5d54101 ""
   "/Users/halaction/.texlive2025/texmf-var/fonts/tfm/lh/lh-t2a/latt1440.tfm" 1778684368.48353 1272 e3abe42d6bdbd8626fffa22fcb43f669 ""
-  "/Users/halaction/Workspace/humor-generation/docs/thesis/main.tex" 1778689671.86768 2395 71319ea9f18c9a14416b4f24cf9dcae3 ""
+  "/Users/halaction/Workspace/humor-generation/docs/thesis/main.tex" 1778692450.0638 2461 69d35357ae3a62c125a71e5a52412364 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/enc/dvips/cm-super/cm-super-t2a.enc" 1741388039 3141 82d5616418ed8d5de703b3951bedecb4 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc" 1741388039 2900 1537cc8184ad1792082cd229ecc269f4 ""
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/fonts/map/fontname/texfonts.map" 1741388039 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -154,17 +154,18 @@
   "/opt/homebrew/Cellar/texlive/20250308_2/share/texmf-var/web2c/pdftex/pdflatex.fmt" 1741388039 3346139 1cc6d170340807f4737e090b298f03d2 ""
   "chapters/appendix.tex" 1778684361.53293 5410 304aec3332323b7e58f4f4149f183c0f ""
   "chapters/conclusion.tex" 1778684361.53321 4754 857fc8551a5254b0a170fd20e7b0b472 ""
+  "chapters/experiments.tex" 1778692443.41519 18139 4b69978c328c6541ff51d4d50419d2c8 ""
   "chapters/introduction.tex" 1778684361.53343 10268 f1976636faca5c634d1dd02f59f86030 ""
   "chapters/literature-review.tex" 1778689785.08871 32775 80e65df57672b28d7793775d36349c13 ""
   "chapters/methodology.tex" 1778691621.82902 67128 594ad675945a0a4ee20fdc8caaf9aa13 ""
   "chapters/results.tex" 1778684361.53397 8039 101547177da695fe2a11e101b4eb60c8 ""
   "chapters/title.tex" 1778689221.61486 3207 cfe576becdd0e52d49cfeec120212fbb ""
-  "main.aux" 1778691622.26238 20140 94948557ca80293491374f86358cadb3 "pdflatex"
-  "main.bbl" 1778691620.9392 33620 68b58f30d9bffb0a8ec36494ffaa44db "bibtex main"
-  "main.out" 1778691622.26614 13891 461ac26d07da1209ea7664215ae603ab "pdflatex"
-  "main.run.xml" 1778691622.2678 2587 0c6283a5eb2dd388e30e6c33905ba305 "pdflatex"
-  "main.tex" 1778689671.86768 2395 71319ea9f18c9a14416b4f24cf9dcae3 ""
-  "main.toc" 1778691622.26786 5658 90fb84e5b3607f7da5ce032a7a33cd6c "pdflatex"
+  "main.aux" 1778692454.49092 23357 810c30af33c751f157231b9fea1981a1 "pdflatex"
+  "main.bbl" 1778692453.14378 33620 68b58f30d9bffb0a8ec36494ffaa44db "bibtex main"
+  "main.out" 1778692454.49489 16344 02840efdaec80b1e27cb117b964db234 "pdflatex"
+  "main.run.xml" 1778692454.49641 2587 0c6283a5eb2dd388e30e6c33905ba305 "pdflatex"
+  "main.tex" 1778692450.0638 2461 69d35357ae3a62c125a71e5a52412364 ""
+  "main.toc" 1778692454.49645 6682 3ad4dd32ec1404bb5a9f411202076bce "pdflatex"
   (generated)
   "main-blx.bib"
   "main.aux"
