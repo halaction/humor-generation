@@ -1,14 +1,14 @@
 # Fdb version 4
-["bibtex main"] 1778700348.91413 "main.aux" "main.bbl" "main" 1778700351.14738 0
-  "./main-blx.bib" 1778700350.79048 343 343e095b1185c652a393dea4f8685441 ""
+["bibtex main"] 1778700348.91413 "main.aux" "main.bbl" "main" 1778700775.83605 0
+  "./main-blx.bib" 1778700775.47014 343 343e095b1185c652a393dea4f8685441 ""
   "./references.bib" 1778693917.27173 9370 056b20fdf43cb22a0ff8be6525d9cce2 ""
   "/usr/local/texlive/2026/texmf-dist/bibtex/bst/biblatex/biblatex.bst" 1752177141 65510 9a2a51799b543ff279b8ea2dd91ec499 ""
-  "main.aux" 1778700350.7846 28614 64ef48508581486bdaa78eae1395ac4c "pdflatex"
+  "main.aux" 1778700775.46398 28614 64ef48508581486bdaa78eae1395ac4c "pdflatex"
   (generated)
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1778700349.02045 "/Users/middernacht/humor-generation/docs/thesis/main.tex" "main.pdf" "main" 1778700351.14757 0
+["pdflatex"] 1778700773.74872 "/Users/middernacht/humor-generation/docs/thesis/main.tex" "main.pdf" "main" 1778700775.83628 0
   "/Users/middernacht/Library/texlive/2026/texmf-var/fonts/tfm/lh/lh-t2a/labx1440.tfm" 1778605050.92668 3304 6a543c07045572737981351171e0505e ""
   "/Users/middernacht/Library/texlive/2026/texmf-var/fonts/tfm/lh/lh-t2a/labx2074.tfm" 1778605053.60934 3316 0992aa03d0c75498a0b6fb905d9eaab6 ""
   "/Users/middernacht/Library/texlive/2026/texmf-var/fonts/tfm/lh/lh-t2a/larm1440.tfm" 1778605047.7488 3256 3daaa33cf35cf3f354983aa3214ecd7f ""
@@ -147,7 +147,7 @@
   "/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1778602938 5573038 b99aad5e4898a9034e953632f940512b ""
   "/usr/local/texlive/2026/texmf-var/web2c/pdftex/pdflatex.fmt" 1778602885 3636770 56bc3377f5d01770a10bc2b052713092 ""
   "/usr/local/texlive/2026/texmf.cnf" 1774209515 577 648cd9f92f9c0eac486f4c71c85cfbbe ""
-  "chapters/abstract.tex" 1778700126.2292 4915 a7ff1a1ddceef0e853a632590f1ce40e ""
+  "chapters/abstract.tex" 1778700773.50549 4854 07d2f80aa55c3a144560210e6b83daf4 ""
   "chapters/appendix.tex" 1778700122.23696 13046 9f9729522f21e3976ed500c23779ac15 ""
   "chapters/conclusion.tex" 1778700122.23746 10009 59715f10ed957ccd69cbc51ea8946891 ""
   "chapters/experiments.tex" 1778700122.23803 18140 c49605e65dd792b5bba2e1ee8a3dc030 ""
@@ -156,12 +156,12 @@
   "chapters/methodology.tex" 1778700126.23055 67133 5f1c4ad0911d8f88b347a081e4278e0b ""
   "chapters/results.tex" 1778700122.24027 27034 2094877725c03c4a8b092e4819745573 ""
   "chapters/title.tex" 1778700126.23088 2271 aea6d773fc3c0ba3d0c1ef76eee32b60 ""
-  "main.aux" 1778700350.7846 28614 64ef48508581486bdaa78eae1395ac4c "pdflatex"
+  "main.aux" 1778700775.46398 28614 64ef48508581486bdaa78eae1395ac4c "pdflatex"
   "main.bbl" 1778700349.01769 33620 68b58f30d9bffb0a8ec36494ffaa44db "bibtex main"
-  "main.out" 1778700350.78941 19726 95e9e7dfa4f7c31020eb5432eb4fc01d "pdflatex"
-  "main.run.xml" 1778700350.79106 2587 0c6283a5eb2dd388e30e6c33905ba305 "pdflatex"
+  "main.out" 1778700775.46907 19726 95e9e7dfa4f7c31020eb5432eb4fc01d "pdflatex"
+  "main.run.xml" 1778700775.47072 2587 0c6283a5eb2dd388e30e6c33905ba305 "pdflatex"
   "main.tex" 1778700277.31417 2342 9c1d237d3a43317a73d64595f1f93bef ""
-  "main.toc" 1778700350.79111 8198 1b3600ce5959ec20948b944fa10a872f "pdflatex"
+  "main.toc" 1778700775.47077 8198 1b3600ce5959ec20948b944fa10a872f "pdflatex"
   (generated)
   "main-blx.bib"
   "main.aux"
