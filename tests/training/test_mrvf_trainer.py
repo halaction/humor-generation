@@ -47,6 +47,17 @@ class DummyTokenizer:
         del skip_special_tokens
         return " ".join(str(x) for x in ids)
 
+    def apply_chat_template(
+        self,
+        messages,
+        *,
+        tokenize: bool = False,
+        add_generation_prompt: bool = True,
+        enable_thinking: bool = True,
+    ) -> str:
+        del tokenize, add_generation_prompt, enable_thinking
+        return "<chat>" + messages[0]["content"] + "</chat>"
+
     @staticmethod
     def _encode(text: str, *, truncation: bool, max_length: int | None) -> list[int]:
         ids = [(ord(ch) % 19) + 1 for ch in text]
@@ -61,6 +72,7 @@ class DummyModel(torch.nn.Module):
         self.embed = torch.nn.Embedding(vocab_size, 16)
         self.head = torch.nn.Linear(16, vocab_size)
         self.last_generate_input_width: int | None = None
+        self.append_tokens: list[int] = [7, 8]
 
     def forward(self, input_ids, attention_mask=None):
         del attention_mask
@@ -71,8 +83,11 @@ class DummyModel(torch.nn.Module):
     def generate(self, *, input_ids, attention_mask=None, **kwargs):
         del attention_mask, kwargs
         self.last_generate_input_width = input_ids.shape[1]
-        append = torch.full((input_ids.shape[0], 2), 7, dtype=input_ids.dtype, device=input_ids.device)
-        append[:, 1] = 8
+        append = torch.tensor(
+            [self.append_tokens for _ in range(input_ids.shape[0])],
+            dtype=input_ids.dtype,
+            device=input_ids.device,
+        )
         return torch.cat([input_ids, append], dim=1)
 
     def save_pretrained(self, save_directory):
@@ -151,6 +166,9 @@ def test_compute_losses_for_batch_backward_has_gradients(tmp_path: Path) -> None
     assert metrics["trace_truncated_fraction"] == 0.0
     assert metrics["closed_think_fraction"] == 0.0
     assert metrics["empty_trace_fraction"] == 0.0
+    assert metrics["forced_think_close_fraction"] == 0.0
+    assert "effective_reference_prefix_length_mean" in metrics
+    assert "effective_reference_prefix_length_max" in metrics
     assert sample is not None
     assert sample.prompt == batch_rows[0]["prompt"]
     assert len(sample.references) == 2
@@ -158,6 +176,8 @@ def test_compute_losses_for_batch_backward_has_gradients(tmp_path: Path) -> None
     assert all(trace.trace == "7 8" for trace in sample.traces)
     assert all(trace.trace_token_length == 2 for trace in sample.traces)
     assert all(not trace.is_truncated for trace in sample.traces)
+    assert all(not trace.forced_think_close for trace in sample.traces)
+    assert all(trace.reference_prefix_length > trace.trace_token_length for trace in sample.traces)
     assert all(isinstance(trace.reward, float) for trace in sample.traces)
     assert all(isinstance(trace.advantage, float) for trace in sample.traces)
 
@@ -189,3 +209,65 @@ def test_group_sample_log_includes_all_generations(tmp_path: Path) -> None:
     assert "trace" not in rows[0]
     assert len(rows[0]["traces"]) == 2
     assert {trace["trace_index"] for trace in rows[0]["traces"]} == {0, 1}
+
+
+def test_trace_prompt_uses_jinja_template_before_qwen_chat(tmp_path: Path) -> None:
+    trainer = _build_trainer(tmp_path, num_generations=2)
+    trainer.cfg.trace_format = "qwen_chat_thinking"
+    prompt = "Write a joke using the following keywords: banana"
+
+    rendered = trainer._build_trace_prompt_text(prompt)
+
+    assert rendered.startswith("<chat>")
+    assert prompt in rendered
+    assert "Think freely before answering" in rendered
+    assert "Do not force a fixed structure" in rendered
+    assert trainer.cfg.trace_instruction not in rendered
+
+
+def test_forced_think_close_only_affects_reference_prefix(tmp_path: Path) -> None:
+    trainer = _build_trainer(tmp_path, num_generations=2)
+    trainer.cfg.force_close_thinking = True
+    prompts = ["Write a joke about cats"]
+    references = [["joke one", "joke two"]]
+
+    trace_batch = trainer._generate_trace_batch(prompts, references)
+
+    assert all(ids == [7, 8] for ids in trace_batch.trace_ids)
+    assert trace_batch.forced_think_close == [True, True]
+    suffix_ids = trainer.tokenizer(trainer.cfg.forced_thinking_suffix, add_special_tokens=False)["input_ids"]
+    answer_prefix_ids = trainer.tokenizer(trainer.cfg.answer_prefix, add_special_tokens=False)["input_ids"]
+    assert suffix_ids
+    assert all(
+        prefix[-(len(suffix_ids) + len(answer_prefix_ids)) : -len(answer_prefix_ids)] == suffix_ids
+        for prefix in trace_batch.reference_prefix_ids
+    )
+    assert all(
+        len(prefix) > len(prompt_ids) + len(trace_ids)
+        for prefix, prompt_ids, trace_ids in zip(
+            trace_batch.reference_prefix_ids,
+            trace_batch.prompt_ids,
+            trace_batch.trace_ids,
+            strict=True,
+        )
+    )
+
+
+def test_forced_think_close_not_added_after_sampled_close(tmp_path: Path) -> None:
+    trainer = _build_trainer(tmp_path, num_generations=2)
+    trainer.cfg.force_close_thinking = True
+    close_ids = trainer.tokenizer("</think>", add_special_tokens=False)["input_ids"]
+    trainer.model.append_tokens = [7, *close_ids, 8]
+    prompts = ["Write a joke about cats"]
+    references = [["joke one", "joke two"]]
+
+    trace_batch = trainer._generate_trace_batch(prompts, references)
+
+    expected_trace = [7, *close_ids]
+    assert all(ids == expected_trace for ids in trace_batch.trace_ids)
+    assert trace_batch.forced_think_close == [False, False]
+    suffix_ids = trainer.tokenizer(trainer.cfg.forced_thinking_suffix, add_special_tokens=False)["input_ids"]
+    assert all(
+        suffix_ids != prefix[-(len(suffix_ids) + len(trainer.tokenizer(trainer.cfg.answer_prefix, add_special_tokens=False)["input_ids"])) : -len(trainer.tokenizer(trainer.cfg.answer_prefix, add_special_tokens=False)["input_ids"])]
+        for prefix in trace_batch.reference_prefix_ids
+    )

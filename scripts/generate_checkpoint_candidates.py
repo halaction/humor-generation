@@ -46,6 +46,18 @@ SUFFIX_PATTERNS = (
     re.compile(r"\s*let me know if.*$", flags=re.IGNORECASE | re.DOTALL),
     re.compile(r"\s*\(?note:\s*.*$", flags=re.IGNORECASE | re.DOTALL),
 )
+DEFAULT_FORCED_THINKING_SUFFIX = (
+    "\n\nConsidering the limited time, I will now answer from this reasoning.\n</think>\n\n"
+)
+
+
+def _has_unclosed_think(text: str) -> bool:
+    lowered = text.lower()
+    last_open = lowered.rfind("<think>")
+    if last_open == -1:
+        return False
+    last_close = lowered.rfind("</think>")
+    return last_close < last_open
 
 
 def _strip_thinking(text: str) -> str:
@@ -63,6 +75,12 @@ def _clean_candidate_text(text: str, *, strip_thinking: bool) -> str:
     for pattern in SUFFIX_PATTERNS:
         cleaned = pattern.sub("", cleaned).strip()
     return cleaned
+
+
+def _nonpad_ids(ids: list[int], pad_token_id: int | None) -> list[int]:
+    if pad_token_id is None:
+        return ids
+    return [token_id for token_id in ids if token_id != pad_token_id]
 
 
 def _candidate_quality_summary(rows: list[CandidateOutput]) -> dict[str, int | float]:
@@ -178,7 +196,61 @@ def generate_candidates(args: argparse.Namespace) -> Path:
                 generation_kwargs["temperature"] = args.temperature
             generated = model.generate(**encoded, **generation_kwargs)
         completions = generated[:, input_width:]
-        texts = tokenizer.batch_decode(completions, skip_special_tokens=True)
+        completion_ids = [
+            _nonpad_ids(row.tolist(), tokenizer.pad_token_id)
+            for row in completions
+        ]
+        texts = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
+        if args.force_close_thinking:
+            suffix_ids = tokenizer(args.forced_thinking_suffix, add_special_tokens=False)["input_ids"]
+            needs_continuation = [
+                idx
+                for idx, text in enumerate(texts)
+                if _has_unclosed_think(text)
+            ]
+            if needs_continuation and args.answer_continuation_max_new_tokens > 0:
+                prompt_ids = []
+                for row_ids, row_mask in zip(
+                    encoded["input_ids"].tolist(),
+                    encoded["attention_mask"].tolist(),
+                    strict=True,
+                ):
+                    prompt_ids.append(
+                        [token_id for token_id, mask in zip(row_ids, row_mask, strict=True) if mask == 1]
+                    )
+                continuation_inputs = [
+                    prompt_ids[idx] + completion_ids[idx] + suffix_ids
+                    for idx in needs_continuation
+                ]
+                max_len = max(len(item) for item in continuation_inputs)
+                padded = []
+                attention = []
+                for ids in continuation_inputs:
+                    pad = max_len - len(ids)
+                    padded.append([tokenizer.pad_token_id] * pad + ids)
+                    attention.append([0] * pad + [1] * len(ids))
+                cont_encoded = {
+                    "input_ids": torch.tensor(padded, dtype=torch.long, device=device),
+                    "attention_mask": torch.tensor(attention, dtype=torch.long, device=device),
+                }
+                with torch.no_grad():
+                    cont_kwargs: dict[str, Any] = {
+                        "do_sample": args.temperature > 0,
+                        "top_p": args.top_p,
+                        "max_new_tokens": args.answer_continuation_max_new_tokens,
+                        "pad_token_id": tokenizer.pad_token_id,
+                    }
+                    if args.temperature > 0:
+                        cont_kwargs["temperature"] = args.temperature
+                    continued = model.generate(**cont_encoded, **cont_kwargs)
+                cont_ids = continued[:, max_len:]
+                cont_completion_ids = [
+                    _nonpad_ids(row.tolist(), tokenizer.pad_token_id)
+                    for row in cont_ids
+                ]
+                for local_idx, dataset_idx in enumerate(needs_continuation):
+                    completion_ids[dataset_idx] = completion_ids[dataset_idx] + suffix_ids + cont_completion_ids[local_idx]
+                texts = tokenizer.batch_decode(completion_ids, skip_special_tokens=True)
         for row, text in zip(batch, texts, strict=True):
             cleaned = _clean_candidate_text(text, strip_thinking=args.strip_thinking)
             rows.append(
@@ -214,6 +286,9 @@ def main() -> None:
     parser.add_argument("--use-chat-template", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--enable-thinking", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--strip-thinking", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--force-close-thinking", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--forced-thinking-suffix", default=DEFAULT_FORCED_THINKING_SUFFIX)
+    parser.add_argument("--answer-continuation-max-new-tokens", type=int, default=128)
     args = parser.parse_args()
 
     split_dir = generate_candidates(args)

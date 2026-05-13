@@ -12,6 +12,7 @@ from datasets import Dataset
 from torch.optim import AdamW
 from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
 
+from src.templates import environment
 from src.training.advantages import grpo_zscore_advantages, loo_advantages
 from src.training.config import MRVFConfig
 from src.training.data import prepare_mrvf_dataset
@@ -35,6 +36,9 @@ class TraceBatch:
     prompt_ids: list[list[int]]
     trace_ids: list[list[int]]
     trace_texts: list[str]
+    reference_prefix_ids: list[list[int]]
+    forced_think_close: list[bool]
+    reference_prefix_lengths: list[int]
     references: list[list[str]]
 
 
@@ -47,6 +51,9 @@ class TraceDebugSample:
     trace_token_length: int
     is_truncated: bool
     closed_think: bool
+    forced_think_close: bool
+    forced_suffix_preview: str
+    reference_prefix_length: int
 
 
 @dataclass
@@ -113,6 +120,16 @@ def _sequence_logprobs_from_ids(
     row_ids = torch.arange(logits.shape[0], device=logits.device).unsqueeze(1).expand_as(selected)[selected]
     result.scatter_add_(0, row_ids, selected_logprobs)
     return result
+
+
+def _find_subsequence_end(ids: list[int], pattern: list[int]) -> int | None:
+    if not pattern:
+        return None
+    last_start = len(ids) - len(pattern)
+    for start in range(last_start + 1):
+        if ids[start : start + len(pattern)] == pattern:
+            return start + len(pattern)
+    return None
 
 
 class MRVFTrainer:
@@ -192,8 +209,9 @@ class MRVFTrainer:
         self.model = get_peft_model(self.model, peft_config)
 
     def _build_trace_prompt_text(self, prompt: str) -> str:
+        trace_prompt = environment.get_template(self.cfg.trace_prompt_template).render(prompt=prompt).strip()
         if self.cfg.trace_format == "qwen_chat_thinking":
-            messages = [{"role": "user", "content": f"{prompt}\n{self.cfg.trace_instruction}"}]
+            messages = [{"role": "user", "content": trace_prompt}]
             try:
                 return self.tokenizer.apply_chat_template(
                     messages,
@@ -204,8 +222,8 @@ class MRVFTrainer:
             except TypeError:
                 return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         if not self.cfg.use_thinking:
-            return f"{prompt}\n{self.cfg.trace_instruction}"
-        return f"{prompt}\nThink briefly using <think>...</think>, and output only the plan inside the think block."
+            return trace_prompt
+        return f"{trace_prompt}\nThink inside <think>...</think> before the final joke."
 
     def _generate_trace_batch(self, prompts: list[str], references: list[list[str]]) -> TraceBatch:
         grouped_prompt_texts: list[str] = []
@@ -224,19 +242,41 @@ class MRVFTrainer:
         for row_ids, row_mask in zip(input_ids.tolist(), attention_mask.tolist(), strict=True):
             grouped_prompt_ids.append([token for token, mask in zip(row_ids, row_mask, strict=True) if mask == 1])
 
-        with torch.no_grad():
-            generated = self.model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                do_sample=True,
-                max_new_tokens=self.cfg.max_trace_length,
-                temperature=self.cfg.temperature,
-                top_p=self.cfg.top_p,
-                pad_token_id=self.tokenizer.pad_token_id,
-            )
+        was_training = self.model.training
+        if self.cfg.gradient_checkpointing and hasattr(self.model, "gradient_checkpointing_disable"):
+            self.model.gradient_checkpointing_disable()
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                generation_kwargs: dict[str, Any] = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "do_sample": True,
+                    "max_new_tokens": self.cfg.max_trace_length,
+                    "temperature": self.cfg.temperature,
+                    "top_p": self.cfg.top_p,
+                    "repetition_penalty": self.cfg.repetition_penalty,
+                    "pad_token_id": self.tokenizer.pad_token_id,
+                }
+                if self.cfg.top_k is not None:
+                    generation_kwargs["top_k"] = self.cfg.top_k
+                generated = self.model.generate(
+                    **generation_kwargs,
+                )
+        finally:
+            if self.cfg.gradient_checkpointing and hasattr(self.model, "gradient_checkpointing_enable"):
+                self.model.gradient_checkpointing_enable()
+            if was_training:
+                self.model.train()
 
+        think_close_ids = self.tokenizer("</think>", add_special_tokens=False)["input_ids"]
+        forced_suffix_ids = self.tokenizer(self.cfg.forced_thinking_suffix, add_special_tokens=False)["input_ids"]
+        answer_prefix_ids = self.tokenizer(self.cfg.answer_prefix, add_special_tokens=False)["input_ids"]
         trace_ids: list[list[int]] = []
         trace_texts: list[str] = []
+        reference_prefix_ids: list[list[int]] = []
+        forced_think_close: list[bool] = []
+        reference_prefix_lengths: list[int] = []
         for idx in range(generated.shape[0]):
             row = generated[idx].tolist()
             completion = extract_completion_ids(
@@ -244,14 +284,29 @@ class MRVFTrainer:
                 input_width=input_width,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
-            trace_ids.append(completion)
-            trace_texts.append(self.tokenizer.decode(completion, skip_special_tokens=True))
+            close_end = _find_subsequence_end(completion, think_close_ids)
+            if close_end is not None:
+                sampled_trace = completion[:close_end]
+                close_was_forced = False
+            else:
+                sampled_trace = completion
+                close_was_forced = self.cfg.force_close_thinking
+            suffix_ids = forced_suffix_ids if close_was_forced else []
+            ref_prefix = grouped_prompt_ids[idx] + sampled_trace + suffix_ids + answer_prefix_ids
+            trace_ids.append(sampled_trace)
+            trace_texts.append(self.tokenizer.decode(sampled_trace, skip_special_tokens=True))
+            reference_prefix_ids.append(ref_prefix)
+            forced_think_close.append(close_was_forced)
+            reference_prefix_lengths.append(len(ref_prefix))
 
         return TraceBatch(
             prompt_texts=grouped_prompt_texts,
             prompt_ids=grouped_prompt_ids,
             trace_ids=trace_ids,
             trace_texts=trace_texts,
+            reference_prefix_ids=reference_prefix_ids,
+            forced_think_close=forced_think_close,
+            reference_prefix_lengths=reference_prefix_lengths,
             references=grouped_references,
         )
 
@@ -335,6 +390,9 @@ class MRVFTrainer:
                 "trace_token_length",
                 "is_truncated",
                 "closed_think",
+                "forced_think_close",
+                "forced_suffix_preview",
+                "reference_prefix_length",
             ],
             data=[
                 [
@@ -348,6 +406,9 @@ class MRVFTrainer:
                     trace.trace_token_length,
                     trace.is_truncated,
                     trace.closed_think,
+                    trace.forced_think_close,
+                    trace.forced_suffix_preview,
+                    trace.reference_prefix_length,
                 ]
                 for trace in sample.traces
             ],
@@ -409,16 +470,11 @@ class MRVFTrainer:
         grouped_size = len(batch_rows)
 
         trace_logprob = self._trace_logprobs(trace_batch, self.model)
-        prefix_ids_for_refs = [
-            prompt_ids + trace_ids + self.tokenizer(self.cfg.answer_prefix, add_special_tokens=False)["input_ids"]
-            for prompt_ids, trace_ids in zip(trace_batch.prompt_ids, trace_batch.trace_ids, strict=True)
-        ]
-
         with torch.no_grad():
             reward_outputs = teacher_forced_reference_logps_from_ids(
                 model=self.model,
                 tokenizer=self.tokenizer,
-                prefix_ids_per_sample=prefix_ids_for_refs,
+                prefix_ids_per_sample=trace_batch.reference_prefix_ids,
                 references=trace_batch.references,
                 max_reference_length=self.cfg.max_reference_length,
                 length_normalization=self.cfg.reference_length_normalization,
@@ -426,7 +482,7 @@ class MRVFTrainer:
         ref_outputs = teacher_forced_reference_logps_from_ids(
             model=self.model,
             tokenizer=self.tokenizer,
-            prefix_ids_per_sample=prefix_ids_for_refs,
+            prefix_ids_per_sample=trace_batch.reference_prefix_ids,
             references=trace_batch.references,
             max_reference_length=self.cfg.max_reference_length,
             length_normalization=self.cfg.reference_length_normalization,
@@ -488,6 +544,14 @@ class MRVFTrainer:
             dtype=torch.float32,
             device=self.device,
         )
+        forced_close = torch.tensor(trace_batch.forced_think_close, dtype=torch.float32, device=self.device)
+        reference_prefix_lengths = torch.tensor(
+            trace_batch.reference_prefix_lengths,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        if reference_prefix_lengths.numel() == 0:
+            reference_prefix_lengths = torch.zeros(1, dtype=torch.float32, device=self.device)
         metrics = {
             "loss": float(loss.detach().item()),
             "trace_loss": float(trace_loss.detach().item()),
@@ -506,6 +570,9 @@ class MRVFTrainer:
             "trace_truncated_fraction": float(truncated.mean().item()) if truncated.numel() else 0.0,
             "closed_think_fraction": float(closed_think.mean().item()) if closed_think.numel() else 0.0,
             "empty_trace_fraction": float(empty_trace.mean().item()) if empty_trace.numel() else 0.0,
+            "forced_think_close_fraction": float(forced_close.mean().item()) if forced_close.numel() else 0.0,
+            "effective_reference_prefix_length_mean": float(reference_prefix_lengths.mean().item()),
+            "effective_reference_prefix_length_max": float(reference_prefix_lengths.max().item()),
         }
         sample: BatchDebugSample | None = None
         if batch_rows:
@@ -519,6 +586,11 @@ class MRVFTrainer:
                     trace_token_length=len(trace_batch.trace_ids[idx]),
                     is_truncated=len(trace_batch.trace_ids[idx]) >= self.cfg.max_trace_length,
                     closed_think="</think>" in trace_batch.trace_texts[idx],
+                    forced_think_close=trace_batch.forced_think_close[idx],
+                    forced_suffix_preview=(
+                        self.cfg.forced_thinking_suffix[:120] if trace_batch.forced_think_close[idx] else ""
+                    ),
+                    reference_prefix_length=trace_batch.reference_prefix_lengths[idx],
                 )
                 for idx in range(first_group_end)
             ]

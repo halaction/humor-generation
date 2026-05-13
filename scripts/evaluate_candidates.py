@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.config import config
+from src.config import EvaluationConfig, config
 from src.paths import DATA_DIR
 from src.pipelines.evaluation import EvaluationPipeline
 
@@ -17,6 +17,11 @@ def main() -> None:
     parser.add_argument("--split", default="validation")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--judge-model")
+    parser.add_argument("--max-parallel-requests", type=int)
+    parser.add_argument("--judge-temperature", type=float)
+    parser.add_argument("--max-retries", type=int)
+    parser.add_argument("--limit-references", type=int)
     args = parser.parse_args()
 
     if args.candidate_dir:
@@ -29,8 +34,26 @@ def main() -> None:
         msg = "At least two candidate directories are required for pairwise evaluation."
         raise ValueError(msg)
 
-    pipeline = EvaluationPipeline(output_dir=args.output_dir)
-    pipeline.build(candidate_paths=candidate_dirs, split=args.split, resume=args.resume)
+    eval_config = config.evaluation.model_copy(
+        update={
+            key: value
+            for key, value in {
+                "model": args.judge_model,
+                "max_parallel_requests": args.max_parallel_requests,
+                "judge_temperature": args.judge_temperature,
+                "max_retries": args.max_retries,
+            }.items()
+            if value is not None
+        }
+    )
+    eval_config = EvaluationConfig.model_validate(eval_config.model_dump())
+    pipeline = EvaluationPipeline(pipeline_config=eval_config, output_dir=args.output_dir)
+    pipeline.build(
+        candidate_paths=candidate_dirs,
+        split=args.split,
+        resume=args.resume,
+        limit_references=args.limit_references,
+    )
     print({"evaluation_dir": str(pipeline.output_dir), "leaderboard_dir": str(pipeline.leaderboard_dir)})
 
 

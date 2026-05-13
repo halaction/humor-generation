@@ -4,7 +4,7 @@ pytest.importorskip("torch")
 pytest.importorskip("pyarrow")
 pytest.importorskip("datasets")
 
-from scripts.generate_checkpoint_candidates import _candidate_quality_summary, _clean_candidate_text
+from scripts.generate_checkpoint_candidates import _candidate_quality_summary, _clean_candidate_text, _has_unclosed_think
 from src.models import CandidateOutput
 
 
@@ -19,6 +19,12 @@ def test_unclosed_thinking_cleanup_does_not_leak_trace() -> None:
     text = "<think>Okay, I need a joke about ducks and taxes. Maybe"
     cleaned = _clean_candidate_text(text, strip_thinking=True)
     assert cleaned == ""
+
+
+def test_unclosed_thinking_detection() -> None:
+    assert _has_unclosed_think("<think>reasoning") is True
+    assert _has_unclosed_think("<think>reasoning</think>\nanswer") is False
+    assert _has_unclosed_think("plain answer") is False
 
 
 def test_candidate_cleanup_removes_wrappers_and_suffixes() -> None:

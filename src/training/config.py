@@ -32,9 +32,16 @@ class MRVFConfig:
     beta: float = 0.0
     temperature: float = 1.0
     top_p: float = 0.95
+    top_k: int | None = None
+    repetition_penalty: float = 1.0
     trace_instruction: str = (
         "Think briefly about a joke plan. Use at most three short sentences: setup, wordplay, twist. "
         "Do not write the final joke."
+    )
+    trace_prompt_template: str = "training_trace_prompt.j2"
+    force_close_thinking: bool = False
+    forced_thinking_suffix: str = (
+        "\n\nConsidering the limited time, I will now answer from this reasoning.\n</think>\n\n"
     )
     answer_prefix: str = "\nFinal joke:\n"
     seed: int = 42
@@ -86,4 +93,16 @@ class MRVFConfig:
             raise ValueError(msg)
         if self.eval_every_steps < 0 or self.eval_sample_size < 0:
             msg = "`eval_every_steps` and `eval_sample_size` must be non-negative."
+            raise ValueError(msg)
+        if self.top_k is not None and self.top_k <= 0:
+            msg = "`top_k` must be positive when set."
+            raise ValueError(msg)
+        if self.repetition_penalty <= 0:
+            msg = "`repetition_penalty` must be positive."
+            raise ValueError(msg)
+        if not self.trace_prompt_template.strip():
+            msg = "`trace_prompt_template` must not be empty."
+            raise ValueError(msg)
+        if self.force_close_thinking and not self.forced_thinking_suffix.strip():
+            msg = "`forced_thinking_suffix` must not be empty when `force_close_thinking=True`."
             raise ValueError(msg)

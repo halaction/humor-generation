@@ -226,3 +226,41 @@ def test_evaluation_resume_rebuilds_when_rows_are_incomplete(tmp_path: Path) -> 
 
     asyncio.run(pipeline.run(candidates=candidates, resume=True))
     assert client.chat.completions.calls == first_calls + 1
+
+
+def test_evaluation_build_can_limit_references(tmp_path: Path) -> None:
+    def write_candidate_dir(model: str, texts: list[str]) -> Path:
+        root = tmp_path / "candidates" / model / "validation"
+        root.mkdir(parents=True)
+        table = pa.Table.from_pylist(
+            [
+                {"id": idx + 1, "keywords": [f"k{idx + 1}"], "model": model, "text": text}
+                for idx, text in enumerate(texts)
+            ]
+        )
+        pq.write_table(table, root / "part-0000.parquet")
+        return tmp_path / "candidates" / model
+
+    base_dir = write_candidate_dir("base-v1", ["base p1", "base p2", "base p3"])
+    tuned_dir = write_candidate_dir("tuned-v1", ["tuned p1", "tuned p2", "tuned p3"])
+    decisions = {
+        ("base p1", "tuned p1"): "right",
+        ("tuned p1", "base p1"): "left",
+    }
+    pipeline = EvaluationPipeline(
+        pipeline_config=EvaluationConfig(model="mock-judge", random_seed=42, max_retries=1),
+        output_dir=tmp_path / "eval",
+        client=_MockClient(decisions=decisions),
+    )
+
+    pipeline.build(
+        candidate_paths=[base_dir, tuned_dir],
+        split="validation",
+        resume=False,
+        limit_references=1,
+    )
+
+    evaluations = _read_part_rows(tmp_path / "eval" / "evaluation")
+    assert len(evaluations) == 1
+    assert evaluations[0]["reference_id"] == 1
+    assert _read_part_rows(tmp_path / "eval" / "leaderboard")
