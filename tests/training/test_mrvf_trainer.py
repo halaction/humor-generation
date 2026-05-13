@@ -83,6 +83,9 @@ class DummyScheduler:
     def step(self) -> None:
         return None
 
+    def get_last_lr(self) -> list[float]:
+        return [1e-3]
+
 
 def _build_trainer(tmp_path: Path, *, num_generations: int = 2) -> MRVFTrainer:
     cfg = MRVFConfig(
@@ -112,6 +115,7 @@ def _build_trainer(tmp_path: Path, *, num_generations: int = 2) -> MRVFTrainer:
     trainer.scheduler = DummyScheduler()
     trainer.random = __import__("random").Random(0)
     trainer._current_step = 0
+    trainer._wandb_run = None
     return trainer
 
 
@@ -140,11 +144,22 @@ def test_compute_losses_for_batch_backward_has_gradients(tmp_path: Path) -> None
     loss, metrics, sample = trainer._compute_losses_for_batch(batch_rows)
     assert torch.isfinite(loss)
     assert metrics["kl"] == 0.0
+    assert "advantage_abs_mean" in metrics
+    assert "reward_group_std_mean" in metrics
+    assert metrics["trace_token_length_mean"] == 2.0
+    assert metrics["trace_token_length_max"] == 2.0
+    assert metrics["trace_truncated_fraction"] == 0.0
+    assert metrics["closed_think_fraction"] == 0.0
+    assert metrics["empty_trace_fraction"] == 0.0
     assert sample is not None
     assert sample.prompt == batch_rows[0]["prompt"]
     assert len(sample.references) == 2
-    assert isinstance(sample.reward, float)
-    assert isinstance(sample.advantage, float)
+    assert len(sample.traces) == 2
+    assert all(trace.trace == "7 8" for trace in sample.traces)
+    assert all(trace.trace_token_length == 2 for trace in sample.traces)
+    assert all(not trace.is_truncated for trace in sample.traces)
+    assert all(isinstance(trace.reward, float) for trace in sample.traces)
+    assert all(isinstance(trace.advantage, float) for trace in sample.traces)
 
     trainer.optimizer.zero_grad(set_to_none=True)
     loss.backward()
@@ -152,3 +167,25 @@ def test_compute_losses_for_batch_backward_has_gradients(tmp_path: Path) -> None
     assert grads, "Expected non-empty gradient list."
     nonzero = any(torch.any(grad != 0).item() for grad in grads)
     assert nonzero, "Expected at least one nonzero gradient."
+
+
+def test_group_sample_log_includes_all_generations(tmp_path: Path) -> None:
+    trainer = _build_trainer(tmp_path, num_generations=2)
+    trainer.cfg.logging_steps = 1
+    trainer.cfg.sample_log_path = str(tmp_path / "samples.jsonl")
+    batch_rows = [
+        {
+            "prompt": "Write a joke about cats",
+            "references": ["joke one", "joke two"],
+        }
+    ]
+    _, _, sample = trainer._compute_losses_for_batch(batch_rows)
+    trainer._append_sample_log(step=1, sample=sample)
+
+    import json
+
+    rows = [json.loads(line) for line in Path(trainer.cfg.sample_log_path).read_text().splitlines()]
+    assert len(rows) == 1
+    assert "trace" not in rows[0]
+    assert len(rows[0]["traces"]) == 2
+    assert {trace["trace_index"] for trace in rows[0]["traces"]} == {0, 1}

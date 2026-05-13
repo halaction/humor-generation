@@ -35,8 +35,51 @@ def _default_label(model_or_checkpoint: str) -> str:
     return model_or_checkpoint.strip("/").replace("/", "__")
 
 
+WRAPPER_PATTERNS = (
+    re.compile(r"^\s*sure[!,]?\s*", flags=re.IGNORECASE),
+    re.compile(
+        r"^\s*here(?:'s| is)\s+(?:a|the)\s+joke(?:\s+using(?:\s+the)?\s+(?:keywords?|words?)?.*?)?:\s*",
+        flags=re.IGNORECASE | re.DOTALL,
+    ),
+)
+SUFFIX_PATTERNS = (
+    re.compile(r"\s*let me know if.*$", flags=re.IGNORECASE | re.DOTALL),
+    re.compile(r"\s*\(?note:\s*.*$", flags=re.IGNORECASE | re.DOTALL),
+)
+
+
 def _strip_thinking(text: str) -> str:
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    last_open = cleaned.lower().rfind("<think>")
+    if last_open != -1:
+        cleaned = cleaned[:last_open]
+    return cleaned.strip()
+
+
+def _clean_candidate_text(text: str, *, strip_thinking: bool) -> str:
+    cleaned = _strip_thinking(text) if strip_thinking else text.strip()
+    for pattern in WRAPPER_PATTERNS:
+        cleaned = pattern.sub("", cleaned).strip()
+    for pattern in SUFFIX_PATTERNS:
+        cleaned = pattern.sub("", cleaned).strip()
+    return cleaned
+
+
+def _candidate_quality_summary(rows: list[CandidateOutput]) -> dict[str, int | float]:
+    texts = [row.text or "" for row in rows]
+    lengths = [len(text) for text in texts]
+    lowered = [text.lower() for text in texts]
+    wrapper_regex = re.compile(r"\b(sure[!,]?|here(?:'s| is).{0,80}joke|let me know)\b", flags=re.IGNORECASE)
+    return {
+        "rows": len(rows),
+        "empty_text_count": sum(length == 0 for length in lengths),
+        "text_length_min": min(lengths) if lengths else 0,
+        "text_length_mean": float(sum(lengths) / len(lengths)) if lengths else 0.0,
+        "text_length_max": max(lengths) if lengths else 0,
+        "contains_think_count": sum("<think>" in text for text in lowered),
+        "contains_wrapper_count": sum(bool(wrapper_regex.search(text)) for text in texts),
+        "contains_note_count": sum("note:" in text for text in lowered),
+    }
 
 
 def _load_model(model_or_checkpoint: str, torch_dtype: str) -> tuple[Any, Any]:
@@ -137,7 +180,7 @@ def generate_candidates(args: argparse.Namespace) -> Path:
         completions = generated[:, input_width:]
         texts = tokenizer.batch_decode(completions, skip_special_tokens=True)
         for row, text in zip(batch, texts, strict=True):
-            cleaned = _strip_thinking(text) if args.strip_thinking else text.strip()
+            cleaned = _clean_candidate_text(text, strip_thinking=args.strip_thinking)
             rows.append(
                 CandidateOutput(
                     id=int(row["id"]),
@@ -148,6 +191,7 @@ def generate_candidates(args: argparse.Namespace) -> Path:
             )
 
     _write_candidates(rows=rows, output_dir=split_dir, shard_size=args.shard_size)
+    print({"candidate_quality": _candidate_quality_summary(rows)})
     return split_dir
 
 

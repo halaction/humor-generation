@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -65,6 +66,13 @@ def _upload_one(api: HfApi, *, args: argparse.Namespace, folder: Path, path_in_r
         )
 
 
+def _step_path_name(step_dir: Path) -> str:
+    match = re.fullmatch(r"step-(\d+)", step_dir.name)
+    if match is None:
+        return step_dir.name
+    return f"step-{int(match.group(1)):04d}"
+
+
 def main() -> None:
     load_dotenv(Path(".env"))
     parser = argparse.ArgumentParser(description="Upload a LoRA adapter checkpoint folder to Hugging Face Hub.")
@@ -99,7 +107,7 @@ def main() -> None:
         for step_dir in sorted(args.checkpoint_dir.glob("step-*")):
             if not step_dir.is_dir():
                 continue
-            step_path = str(run_root / step_dir.name)
+            step_path = str(run_root / _step_path_name(step_dir))
             _upload_one(api, args=args, folder=step_dir, path_in_repo=step_path, token=token)
             uploaded.append(step_path)
 

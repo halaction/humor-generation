@@ -32,7 +32,10 @@ class MRVFConfig:
     beta: float = 0.0
     temperature: float = 1.0
     top_p: float = 0.95
-    trace_instruction: str = "First think briefly about setup and twist. Return only the plan."
+    trace_instruction: str = (
+        "Think briefly about a joke plan. Use at most three short sentences: setup, wordplay, twist. "
+        "Do not write the final joke."
+    )
     answer_prefix: str = "\nFinal joke:\n"
     seed: int = 42
     use_thinking: bool = True

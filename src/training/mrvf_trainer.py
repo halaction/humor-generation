@@ -39,12 +39,21 @@ class TraceBatch:
 
 
 @dataclass
-class BatchDebugSample:
-    prompt: str
+class TraceDebugSample:
+    trace_index: int
     trace: str
-    references: list[str]
     reward: float
     advantage: float
+    trace_token_length: int
+    is_truncated: bool
+    closed_think: bool
+
+
+@dataclass
+class BatchDebugSample:
+    prompt: str
+    references: list[str]
+    traces: list[TraceDebugSample]
     trace_loss: float
     reference_loss: float
 
@@ -277,10 +286,8 @@ class MRVFTrainer:
         payload = {
             "step": step,
             "prompt": sample.prompt,
-            "trace": sample.trace,
             "references": sample.references,
-            "reward": sample.reward,
-            "advantage": sample.advantage,
+            "traces": [asdict(trace) for trace in sample.traces],
             "trace_loss": sample.trace_loss,
             "reference_loss": sample.reference_loss,
         }
@@ -317,16 +324,32 @@ class MRVFTrainer:
         except ImportError:  # pragma: no cover
             return
         table = wandb.Table(
-            columns=["step", "prompt", "trace", "references", "reward", "advantage"],
+            columns=[
+                "step",
+                "prompt",
+                "trace_index",
+                "trace",
+                "references",
+                "reward",
+                "advantage",
+                "trace_token_length",
+                "is_truncated",
+                "closed_think",
+            ],
             data=[
                 [
                     step,
                     sample.prompt,
-                    sample.trace,
+                    trace.trace_index,
+                    trace.trace,
                     "\n\n".join(sample.references),
-                    sample.reward,
-                    sample.advantage,
+                    trace.reward,
+                    trace.advantage,
+                    trace.trace_token_length,
+                    trace.is_truncated,
+                    trace.closed_think,
                 ]
+                for trace in sample.traces
             ],
         )
         self._wandb_log({"eval/samples": table}, step=step)
@@ -442,21 +465,67 @@ class MRVFTrainer:
             + self.cfg.reference_loss_coef * reference_loss
             + self.cfg.beta * kl_term
         )
+        grouped_rewards = rewards_for_adv.view(grouped_size, self.cfg.num_generations)
+        trace_lengths = torch.tensor(
+            [len(trace_ids) for trace_ids in trace_batch.trace_ids],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        if trace_lengths.numel() == 0:
+            trace_lengths = torch.zeros(1, dtype=torch.float32, device=self.device)
+        truncated = torch.tensor(
+            [len(trace_ids) >= self.cfg.max_trace_length for trace_ids in trace_batch.trace_ids],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        closed_think = torch.tensor(
+            ["</think>" in trace_text for trace_text in trace_batch.trace_texts],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        empty_trace = torch.tensor(
+            [len(trace_ids) == 0 for trace_ids in trace_batch.trace_ids],
+            dtype=torch.float32,
+            device=self.device,
+        )
         metrics = {
             "loss": float(loss.detach().item()),
             "trace_loss": float(trace_loss.detach().item()),
             "reference_loss": float(reference_loss.detach().item()),
             "kl": float(kl_term.detach().item()),
             "reward_mean": float(rewards_for_adv.mean().item()),
+            "reward_std": float(rewards_for_adv.std(unbiased=False).item()),
+            "reward_group_std_mean": float(grouped_rewards.std(dim=1, unbiased=False).mean().item()),
+            "advantage_mean": float(advantages.mean().item()),
+            "advantage_std": float(advantages.std(unbiased=False).item()),
+            "advantage_abs_mean": float(advantages.abs().mean().item()),
+            "trace_logprob_mean": float(trace_logprob.detach().mean().item()),
+            "trace_logprob_std": float(trace_logprob.detach().std(unbiased=False).item()),
+            "trace_token_length_mean": float(trace_lengths.mean().item()),
+            "trace_token_length_max": float(trace_lengths.max().item()),
+            "trace_truncated_fraction": float(truncated.mean().item()) if truncated.numel() else 0.0,
+            "closed_think_fraction": float(closed_think.mean().item()) if closed_think.numel() else 0.0,
+            "empty_trace_fraction": float(empty_trace.mean().item()) if empty_trace.numel() else 0.0,
         }
         sample: BatchDebugSample | None = None
         if batch_rows:
+            first_group_end = min(self.cfg.num_generations, len(trace_batch.trace_texts))
+            trace_samples = [
+                TraceDebugSample(
+                    trace_index=idx,
+                    trace=trace_batch.trace_texts[idx],
+                    reward=float(rewards_for_adv[idx].item()),
+                    advantage=float(advantages[idx].item()),
+                    trace_token_length=len(trace_batch.trace_ids[idx]),
+                    is_truncated=len(trace_batch.trace_ids[idx]) >= self.cfg.max_trace_length,
+                    closed_think="</think>" in trace_batch.trace_texts[idx],
+                )
+                for idx in range(first_group_end)
+            ]
             sample = BatchDebugSample(
                 prompt=batch_rows[0]["prompt"],
-                trace=trace_batch.trace_texts[0] if trace_batch.trace_texts else "",
                 references=trace_batch.references[0] if trace_batch.references else [],
-                reward=float(rewards_for_adv[0].item()) if rewards_for_adv.numel() else 0.0,
-                advantage=float(advantages[0].item()) if advantages.numel() else 0.0,
+                traces=trace_samples,
                 trace_loss=float(trace_loss.detach().item()),
                 reference_loss=float(reference_loss.detach().item()),
             )

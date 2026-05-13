@@ -1,4 +1,5 @@
 import pytest
+import yaml
 
 from src.training.config import MRVFConfig
 
@@ -35,3 +36,14 @@ def test_default_config_is_stable_surrogate_mode() -> None:
     assert cfg.use_kl is False
     assert cfg.beta == 0.0
     cfg.validate()
+
+
+def test_qwen3_17b_hpc_config_is_valid() -> None:
+    data = yaml.safe_load(open("configs/models/qwen3-17b-hpc.yaml", encoding="utf-8"))
+    cfg = MRVFConfig(**data)
+    cfg.validate()
+    assert cfg.num_generations == 4
+    assert cfg.max_trace_length == 96
+    assert cfg.reference_loss_coef == 0.25
+    assert cfg.eval_every_steps == 25
+    assert cfg.save_steps == 50
