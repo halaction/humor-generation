@@ -34,21 +34,25 @@
 
 \begin{table}[h]
     \centering
-    \begin{tabular}{p{5cm}p{9cm}}
+    \begingroup
+    \setlength{\tabcolsep}{4pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{7.2cm}X}
         \hline
-        Компонент                                      & Назначение                                                                                \\
+        Компонент                                      & Назначение                                                                                 \\
         \hline
-        \texttt{src/pipelines/jokes.py}                & Загрузка сырых корпусов, очистка, удаление дублей и сохранение корпуса шуток              \\
-        \texttt{src/pipelines/embeddings.py}           & Построение плотных векторных представлений шуток                                          \\
-        \texttt{src/pipelines/keywords.py}             & Извлечение ключевых слов с использованием сходства и MMR                                  \\
-        \texttt{src/pipelines/references.py}           & Построение многореференсных запросов через векторный поиск                                \\
-        \texttt{src/pipelines/candidates.py}           & Генерация кандидатных ответов разных моделей                                              \\
-        \texttt{src/pipelines/evaluation.py}           & Попарная автоматическая оценка и построение таблиц лидеров                                \\
-        \texttt{src/training/reference\_likelihood.py} & Вычисление правдоподобия эталонных ответов через принудительное учительское декодирование \\
-        \texttt{src/training/mrvf\_trainer.py}         & Обучение LoRA-адаптера с MRVF-целью                                                       \\
-        \texttt{scripts/train\_mrvf.py}                & Основной скрипт запуска обучения                                                          \\
+        \texttt{src/pipelines/}\newline\texttt{jokes.py}                & Загрузка сырых корпусов, очистка, удаление дублей и сохранение корпуса шуток               \\
+        \texttt{src/pipelines/}\newline\texttt{embeddings.py}           & Построение плотных векторных представлений шуток                                           \\
+        \texttt{src/pipelines/}\newline\texttt{keywords.py}             & Извлечение ключевых слов с использованием сходства и MMR                                   \\
+        \texttt{src/pipelines/}\newline\texttt{references.py}           & Построение многореференсных запросов через векторный поиск                                 \\
+        \texttt{src/pipelines/}\newline\texttt{candidates.py}           & Генерация кандидатных ответов разных моделей                                               \\
+        \texttt{src/pipelines/}\newline\texttt{evaluation.py}           & Попарная автоматическая оценка и построение таблиц лидеров                                 \\
+        \texttt{src/training/}\newline\texttt{reference\_likelihood.py} & Вычисление правдоподобия эталонных ответов через принудительное учительское декодирование  \\
+        \texttt{src/training/}\newline\texttt{mrvf\_trainer.py}         & Обучение LoRA-адаптера с MRVF-целью                                                        \\
+        \texttt{scripts/}\newline\texttt{train\_mrvf.py}                & Основной скрипт запуска обучения                                                           \\
         \hline
-    \end{tabular}
+    \end{tabularx}
+    \endgroup
     \caption{Основные компоненты программного конвейера}
     \label{tab:appendix-code-structure}
 \end{table}

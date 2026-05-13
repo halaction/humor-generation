@@ -1,7 +1,7 @@
 PWD /Users/halaction/Workspace/humor-generation/docs/thesis
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/web2c/texmf.cnf
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-var/web2c/pdftex/pdflatex.fmt
-INPUT /Users/halaction/Workspace/humor-generation/docs/thesis/main.tex
+INPUT main.tex
 OUTPUT main.log
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/tex/latex/extsizes/extreport.cls
 INPUT /opt/homebrew/Cellar/texlive/20250308_2/share/texmf-dist/tex/latex/extsizes/extreport.cls
