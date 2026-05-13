@@ -33,8 +33,6 @@
 Репозиторий организован как набор отдельных конвейеров и обучающих модулей. Основные компоненты приведены в Таблице~\ref{tab:appendix-code-structure}.
 
 \begin{table}[h]
-    \caption{Основные компоненты программного конвейера}
-    \label{tab:appendix-code-structure}
     \centering
     \begin{tabular}{p{5cm}p{9cm}}
         \hline
@@ -51,6 +49,8 @@
         \texttt{scripts/train\_mrvf.py}                & Основной скрипт запуска обучения                                                          \\
         \hline
     \end{tabular}
+    \caption{Основные компоненты программного конвейера}
+    \label{tab:appendix-code-structure}
 \end{table}
 
 \chapter{Шаблоны запросов}
@@ -109,8 +109,6 @@
 Основные параметры финальных MRVF-запусков приведены в Таблице~\ref{tab:appendix-training-configs}. Эта таблица дублирует наиболее важные параметры из конфигурационных файлов и помогает воспроизвести экспериментальную постановку.
 
 \begin{table}[h]
-    \caption{Параметры финальных MRVF-запусков}
-    \label{tab:appendix-training-configs}
     \centering
     \begin{tabular}{lcc}
         \hline
@@ -130,6 +128,8 @@
         Нормировка преимущества       & GRPO               & GRPO               \\
         \hline
     \end{tabular}
+    \caption{Параметры финальных MRVF-запусков}
+    \label{tab:appendix-training-configs}
 \end{table}
 
 \section{Сравниваемые варианты моделей}
@@ -137,37 +137,21 @@
 В автоматической оценке для каждой размерности модели сравнивались четыре варианта. Они приведены в Таблице~\ref{tab:appendix-model-variants}.
 
 \begin{table}[h]
-    \caption{Варианты моделей в финальной оценке}
-    \label{tab:appendix-model-variants}
     \centering
     \begin{tabular}{lll}
         \hline
-        Группа & Модель                                       & Описание                       \\
+        Группа & Модель                          & Описание                       \\
         \hline
-        1.7B   & \texttt{qwen3-17b-base-nothink-finalonly}    & Базовая модель без рассуждения \\
-        1.7B   & \texttt{qwen3-17b-base-think-finalonly}      & Базовая модель с рассуждением  \\
-        1.7B   & \texttt{qwen3-17b-mrvf-r6-nothink-finalonly} & MRVF без рассуждения           \\
-        1.7B   & \texttt{qwen3-17b-mrvf-r6-think-finalonly}   & MRVF с рассуждением            \\
-        4B     & \texttt{qwen3-4b-base-nothink-finalonly}     & Базовая модель без рассуждения \\
-        4B     & \texttt{qwen3-4b-base-think-finalonly}       & Базовая модель с рассуждением  \\
-        4B     & \texttt{qwen3-4b-mrvf-r2-nothink-finalonly}  & MRVF без рассуждения           \\
-        4B     & \texttt{qwen3-4b-mrvf-r2-think-finalonly}    & MRVF с рассуждением            \\
+        1.7B   & \texttt{qwen3-17b-base-nothink} & Базовая модель без рассуждения \\
+        1.7B   & \texttt{qwen3-17b-base-think}   & Базовая модель с рассуждением  \\
+        1.7B   & \texttt{qwen3-17b-mrvf-nothink} & MRVF без рассуждения           \\
+        1.7B   & \texttt{qwen3-17b-mrvf-think}   & MRVF с рассуждением            \\
+        4B     & \texttt{qwen3-4b-base-nothink}  & Базовая модель без рассуждения \\
+        4B     & \texttt{qwen3-4b-base-think}    & Базовая модель с рассуждением  \\
+        4B     & \texttt{qwen3-4b-mrvf-nothink}  & MRVF без рассуждения           \\
+        4B     & \texttt{qwen3-4b-mrvf-think}    & MRVF с рассуждением            \\
         \hline
     \end{tabular}
+    \caption{Варианты моделей в финальной оценке}
+    \label{tab:appendix-model-variants}
 \end{table}
-
-\section{Примеры качественного анализа}
-
-Для финальной защиты полезно дополнительно подготовить несколько примеров запросов, эталонных шуток и ответов разных моделей. Они не включены в основной текст, чтобы не перегружать раздел результатов, но могут использоваться при устном докладе.
-
-Рекомендуемый формат примера:
-\begin{quote}
-    \textbf{Ключевые слова:} \texttt{\{keywords\}}\\
-    \textbf{Эталонные ответы:} \texttt{\{references\}}\\
-    \textbf{Base no-think:} \texttt{\{candidate\}}\\
-    \textbf{Base think:} \texttt{\{candidate\}}\\
-    \textbf{MRVF no-think:} \texttt{\{candidate\}}\\
-    \textbf{MRVF think:} \texttt{\{candidate\}}
-\end{quote}
-
-Такие примеры особенно полезны для интерпретации случаев, когда автоматическая модель-оценщик предпочитает MRVF-ответ базовому ответу или наоборот. Они также помогают увидеть, связано ли улучшение с более удачным панчлайном, большей краткостью, лучшей релевантностью ключевым словам или просто с более аккуратным форматом.
