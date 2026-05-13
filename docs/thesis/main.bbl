@@ -38,9 +38,7 @@
     \field{labeltitlesource}{title}
     \field{sortinit}{A}
     \field{sortinithash}{A}
-    \field{booktitle}{Proceedings of the 4th Joint {SIGHUM} Workshop on
-  Computational Linguistics for Cultural Heritage, Social Sciences, Humanities
-  and Literature}
+    \field{booktitle}{Proceedings of the 4th Joint {SIGHUM} Workshop on Computational Linguistics for Cultural Heritage, Social Sciences, Humanities and Literature}
     \field{pages}{29\bibrangedash 41}
     \field{title}{A survey on approaches to computational humor generation}
     \verb{url}
@@ -77,8 +75,7 @@
     \field{sortinit}{C}
     \field{sortinithash}{C}
     \field{note}{arXiv:2306.13195}
-    \field{title}{Prompt to {GPT}-3: Step-by-step thinking instructions for
-  humor generation}
+    \field{title}{Prompt to {GPT}-3: Step-by-step thinking instructions for humor generation}
     \verb{url}
     \verb https://arxiv.org/abs/2306.13195
     \endverb
@@ -125,8 +122,7 @@
     \field{sortinit}{C}
     \field{sortinithash}{C}
     \field{note}{OpenReview / arXiv preprint}
-    \field{title}{{SFT} memorizes, {RL} generalizes: A comparative study of
-  foundation model post-training}
+    \field{title}{{SFT} memorizes, {RL} generalizes: A comparative study of foundation model post-training}
     \verb{url}
     \verb https://openreview.net/forum?id=2P4rYTtGok
     \endverb
@@ -172,11 +168,9 @@
     \field{labeltitlesource}{title}
     \field{sortinit}{C}
     \field{sortinithash}{C}
-    \field{booktitle}{Proceedings of the 63rd Annual Meeting of the Association
-  for Computational Linguistics (Volume 1: Long Papers)}
+    \field{booktitle}{Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)}
     \field{pages}{22922\bibrangedash 22937}
-    \field{title}{``What do you call a dog that is incontrovertibly true?
-  Dogma'': Testing {LLM} generalization through humor}
+    \field{title}{``What do you call a dog that is incontrovertibly true? Dogma'': Testing {LLM} generalization through humor}
     \verb{url}
     \verb https://doi.org/10.18653/v1/2025.acl-long.1117
     \endverb
@@ -197,8 +191,7 @@
     \field{sortinit}{D}
     \field{sortinithash}{D}
     \field{note}{arXiv:2501.12948}
-    \field{title}{{DeepSeek-R1}: Incentivizing reasoning capability in {LLM}s
-  via reinforcement learning}
+    \field{title}{{DeepSeek-R1}: Incentivizing reasoning capability in {LLM}s via reinforcement learning}
     \verb{url}
     \verb https://doi.org/10.48550/arXiv.2501.12948
     \endverb
@@ -294,8 +287,7 @@
     \field{sortinit}{G}
     \field{sortinithash}{G}
     \field{note}{arXiv:2507.17746}
-    \field{title}{Rubrics as rewards: Reinforcement learning beyond verifiable
-  domains}
+    \field{title}{Rubrics as rewards: Reinforcement learning beyond verifiable domains}
     \verb{url}
     \verb https://doi.org/10.48550/arXiv.2507.17746
     \endverb
@@ -341,10 +333,8 @@
     \field{labeltitlesource}{title}
     \field{sortinit}{H}
     \field{sortinithash}{H}
-    \field{booktitle}{Proceedings of the 62nd Annual Meeting of the Association
-  for Computational Linguistics}
-    \field{title}{{LLM-Rubric}: A multidimensional, calibrated approach to
-  automated evaluation of natural language texts}
+    \field{booktitle}{Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics}
+    \field{title}{{LLM-Rubric}: A multidimensional, calibrated approach to automated evaluation of natural language texts}
     \verb{url}
     \verb https://aclanthology.org/2024.acl-long.745/
     \endverb
@@ -411,8 +401,7 @@
     \field{sortinit}{K}
     \field{sortinithash}{K}
     \field{note}{arXiv:2502.07981}
-    \field{title}{{AI} humor generation: Cognitive, social and creative skills
-  for effective humor}
+    \field{title}{{AI} humor generation: Cognitive, social and creative skills for effective humor}
     \verb{url}
     \verb https://arxiv.org/abs/2502.07981
     \endverb
@@ -442,8 +431,7 @@
     \field{sortinithash}{L}
     \field{number}{7}
     \field{pages}{177:1\bibrangedash 177:37}
-    \field{title}{Computational humor modeling: A survey on the state of the
-  art}
+    \field{title}{Computational humor modeling: A survey on the state of the art}
     \verb{url}
     \verb https://www.uantwerpen.be/en/staff/jens-lemmens/publications/
     \endverb
@@ -556,11 +544,9 @@
     \field{labeltitlesource}{title}
     \field{sortinit}{L}
     \field{sortinithash}{L}
-    \field{booktitle}{Findings of the Association for Computational
-  Linguistics: {EMNLP} 2025}
+    \field{booktitle}{Findings of the Association for Computational Linguistics: {EMNLP} 2025}
     \field{pages}{9502\bibrangedash 9518}
-    \field{title}{Comparing apples to oranges: A dataset {\&} analysis of {LLM}
-  humour understanding from traditional puns to topical jokes}
+    \field{title}{Comparing apples to oranges: A dataset {\&} analysis of {LLM} humour understanding from traditional puns to topical jokes}
     \verb{url}
     \verb https://doi.org/10.18653/v1/2025.findings-emnlp.505
     \endverb
@@ -595,8 +581,7 @@
     \field{sortinit}{L}
     \field{sortinithash}{L}
     \field{note}{arXiv:2509.21175}
-    \field{title}{Who's laughing now? An overview of computational humour
-  generation and explanation}
+    \field{title}{Who's laughing now? An overview of computational humour generation and explanation}
     \verb{url}
     \verb https://arxiv.org/abs/2509.21175
     \endverb
@@ -663,8 +648,7 @@
     \field{sortinit}{S}
     \field{sortinithash}{S}
     \field{note}{arXiv:2511.09133}
-    \field{title}{Assessing the capabilities of {LLM}s in humor: A
-  multi-dimensional analysis of {Oogiri} generation and evaluation}
+    \field{title}{Assessing the capabilities of {LLM}s in humor: A multi-dimensional analysis of {Oogiri} generation and evaluation}
     \verb{url}
     \verb https://arxiv.org/abs/2511.09133
     \endverb
@@ -693,8 +677,7 @@
     \field{sortinit}{T}
     \field{sortinithash}{T}
     \field{note}{arXiv:2405.10073}
-    \field{title}{Humor mechanics: Advancing humor generation with multistep
-  reasoning}
+    \field{title}{Humor mechanics: Advancing humor generation with multistep reasoning}
     \verb{url}
     \verb https://arxiv.org/abs/2405.10073
     \endverb
@@ -765,8 +748,7 @@
     \field{sortinit}{W}
     \field{sortinithash}{W}
     \field{note}{arXiv:2201.11903}
-    \field{title}{Chain-of-thought prompting elicits reasoning in large
-  language models}
+    \field{title}{Chain-of-thought prompting elicits reasoning in large language models}
     \verb{url}
     \verb https://doi.org/10.48550/arXiv.2201.11903
     \endverb
@@ -794,8 +776,7 @@
     \field{labeltitlesource}{title}
     \field{sortinit}{W}
     \field{sortinithash}{W}
-    \field{booktitle}{Proceedings of the Twelfth Language Resources and
-  Evaluation Conference}
+    \field{booktitle}{Proceedings of the Twelfth Language Resources and Evaluation Conference}
     \field{pages}{6136\bibrangedash 6141}
     \field{title}{The {rJokes} dataset: A large scale humor collection}
     \verb{url}
@@ -828,8 +809,7 @@
     \field{sortinit}{W}
     \field{sortinithash}{W}
     \field{pages}{505\bibrangedash 523}
-    \field{title}{Evaluating humor generation in an improvisational comedy
-  setting}
+    \field{title}{Evaluating humor generation in an improvisational comedy setting}
     \verb{url}
     \verb https://www.clinjournal.org/clinj/article/view/214
     \endverb
@@ -871,11 +851,9 @@
     \field{labeltitlesource}{title}
     \field{sortinit}{X}
     \field{sortinithash}{X}
-    \field{booktitle}{Proceedings of the 2024 Conference on Empirical Methods
-  in Natural Language Processing}
+    \field{booktitle}{Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing}
     \field{pages}{11766\bibrangedash 11782}
-    \field{title}{``A good pun is its own reword'': Can large language models
-  understand puns?}
+    \field{title}{``A good pun is its own reword'': Can large language models understand puns?}
     \verb{url}
     \verb https://doi.org/10.18653/v1/2024.emnlp-main.657
     \endverb
@@ -964,8 +942,7 @@
     \field{sortinit}{Y}
     \field{sortinithash}{Y}
     \field{note}{arXiv:2506.18254}
-    \field{title}{{RLPR}: Extrapolating {RLVR} to general domains without
-  verifiers}
+    \field{title}{{RLPR}: Extrapolating {RLVR} to general domains without verifiers}
     \verb{url}
     \verb https://doi.org/10.48550/arXiv.2506.18254
     \endverb
@@ -1006,8 +983,7 @@
     \field{sortinit}{Z}
     \field{sortinithash}{Z}
     \field{note}{arXiv:2511.21732}
-    \field{title}{{HUMORCHAIN}: Theory-guided multi-stage reasoning for
-  interpretable multimodal humor generation}
+    \field{title}{{HUMORCHAIN}: Theory-guided multi-stage reasoning for interpretable multimodal humor generation}
     \verb{url}
     \verb https://doi.org/10.48550/arXiv.2511.21732
     \endverb
@@ -1095,10 +1071,8 @@
     \field{labeltitlesource}{title}
     \field{sortinit}{Z}
     \field{sortinithash}{Z}
-    \field{note}{Advances in Neural Information Processing Systems, Datasets
-  and Benchmarks Track}
-    \field{title}{Humor in {AI}: Massive scale crowd-sourced preferences and
-  benchmarks for cartoon captioning}
+    \field{note}{Advances in Neural Information Processing Systems, Datasets and Benchmarks Track}
+    \field{title}{Humor in {AI}: Massive scale crowd-sourced preferences and benchmarks for cartoon captioning}
     \verb{url}
     \verb https://arxiv.org/abs/2406.10522
     \endverb
@@ -1156,11 +1130,9 @@
     \field{labeltitlesource}{title}
     \field{sortinit}{Z}
     \field{sortinithash}{Z}
-    \field{booktitle}{Proceedings of the {IEEE/CVF} Conference on Computer
-  Vision and Pattern Recognition}
+    \field{booktitle}{Proceedings of the {IEEE/CVF} Conference on Computer Vision and Pattern Recognition}
     \field{pages}{13246\bibrangedash 13257}
-    \field{title}{Let's think outside the box: Exploring leap-of-thought in
-  large language models with creative humor generation}
+    \field{title}{Let's think outside the box: Exploring leap-of-thought in large language models with creative humor generation}
     \verb{url}
     \verb https://openaccess.thecvf.com/content/CVPR2024/html/Zhong_Lets_Think_
     \verb Outside_the_Box_Exploring_Leap-of-Thought_in_Large_Language_CVPR_2024
