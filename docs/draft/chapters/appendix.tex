@@ -1,48 +1,49 @@
-\chapter{Реализованные шаблоны запросов}
 
-В этом приложении фиксируются основные шаблоны, уже реализованные в репозитории. Они включены сюда, поскольку задают операциональную форму запросы, используемых на протяжении пилотного эксперимента.
+\chapter{Implemented Prompt Templates}
 
-\section{Запрос для генерации эталонных ответов}
+This appendix records the main templates already implemented in the repository. They are included here because they define the operational form of the prompts used throughout the pilot.
 
-Запрос, используемый для поиска эталонных ответов и генерацию кандидатов:
+\section{Reference-generation prompt}
+
+The prompt used for reference retrieval and candidate generation is:
 \begin{quote}
- \ttfamily
- Напиши шутка используя следующих ключевое слово(s): \{ключевые слова\}
+    \ttfamily
+    Write a joke using the following keyword(s): \{keywords\}
 \end{quote}
 
-Его главное преимущество --- согласованность. Одна и та же текстовая форма используется для запроса для векторного представления во время поиск и для последующей генерацию кандидатов, что уменьшает несоответствие между построение набор данных и оценка. Главный недостаток состоит в том, что шаблон намеренно общий и поэтому не кодирует ни теорию юмора, ни информацию об аудитории.
+Its main advantage is consistency. The same textual form is used for retrieval-time prompt embedding and for later candidate generation, which reduces mismatch between dataset construction and evaluation. Its main disadvantage is that it is intentionally generic and therefore does not encode humor theory or audience information.
 
-\section{Инструкции для запросов для векторного поиска}
+\section{Embedding query instructions}
 
-Для адаптации моделью векторных представлений к поиск подзадачи используются два коротких инструкция шаблоны:
+Two short instruction templates are used to adapt the embedding model to retrieval subtasks:
 \begin{quote}
- \ttfamily
- Instruct: Given ключевое слово для шутка, извлекать шутки would совпадение ключевое слово.\\
- Query: \{ключевое слово\}
+    \ttfamily
+    Instruct: Given a keyword for a joke, retrieve jokes would match the keyword.\\
+    Query: \{keyword\}
 \end{quote}
 
 \begin{quote}
- \ttfamily
- Instruct: Given запрос для шутка, извлекать шутки что would ответ запрос.\\
- Query: \{запрос\}
+    \ttfamily
+    Instruct: Given a prompt for a joke, retrieve jokes that would answer the prompt.\\
+    Query: \{prompt\}
 \end{quote}
 
-Эти шаблоны важны, потому что пилотный не использует исходные строки ключевых слов как векторных представлений напрямую. Он кодирует их внутри инструкции, ориентированные на поиск, что делает векторное пространство семантического намерения более специализированным под задачу.
+These templates are important because the pilot does not use raw keyword strings as embeddings directly. It embeds them inside retrieval-oriented instructions, which makes the semantic intent of the vector space more task-specific.
 
-\section{Оценочный запрос}
+\section{Evaluation prompt}
 
-Системная инструкция для попарная оценка просит оценщик сравнить две шутки, написанные для одного запроса, и выбрать ровно одного победитель. Инструкция явно не поощряет вознаграждать длину или стилистическую выверенность, если они не улучшают юмор. Такой дизайн намеренно прост и должен рассматриваться как базовая модель протокол оценки, а не как финальная рубрика, согласованная с человеческими оценками.
+The pairwise evaluation system prompt asks the judge to compare two jokes written for the same prompt and choose exactly one winner. The instruction explicitly discourages rewarding length or polish when these do not improve humor. This design is intentionally simple and should be viewed as a baseline evaluation protocol rather than a final human-aligned rubric.
 
-\chapter{Дополнительные замечания о программной архитектуре}
+\chapter{Supplementary Notes on the Software Architecture}
 
-Репозиторий организован как набор асинхронный процессы:
+The repository is organized as a set of asynchronous pipelines:
 \begin{itemize}
- \item \texttt{JokesPipeline}: скачивает и предобрабатывает сырые корпуса;
- \item \texttt{EmbeddingsPipeline}: вычисляет плотные векторные представления шуток;
- \item \texttt{KeywordsPipeline}: извлекает значимые ключевые слова через сходство и MMR;
- \item \texttt{ReferencesPipeline}: строит наборы данных вида «запрос — эталонные ответы» через векторный поиск;
- \item \texttt{CandidatesPipeline}: генерирует шутки по запросам;
- \item \texttt{EvaluationPipeline}: выполняет попарное оценивание и агрегацию рейтинга.
+    \item \texttt{JokesPipeline}: downloads and preprocesses raw corpora;
+    \item \texttt{EmbeddingsPipeline}: computes dense joke embeddings;
+    \item \texttt{KeywordsPipeline}: extracts salient keywords by similarity and MMR;
+    \item \texttt{ReferencesPipeline}: builds prompt-reference datasets through vector retrieval;
+    \item \texttt{CandidatesPipeline}: generates jokes from prompts;
+    \item \texttt{EvaluationPipeline}: performs pairwise judging and leaderboard aggregation.
 \end{itemize}
 
-Эта архитектура важна для финального диплома, потому что она отделяет построение данных от сравнения моделей. В результате последующий этап обучения MRVF можно добавить без переписывания остальной инфраструктуры. Отсутствующий компонент --- именно тот, который теперь становится основной целью будущей работы: процесс обучения, который потребляет построенный запрос-набор эталонных ответов и оптимизирует формальную целевую функцию, введенную в Chapter 2.
+This architecture matters for the final thesis because it separates data construction from model comparison. As a result, the later MRVF training stage can be added without rewriting the rest of the infrastructure. The missing component is precisely the one that now becomes the main target of future work: a training pipeline that consumes the constructed prompt-reference dataset and optimizes the formal objective introduced in Chapter 2.
