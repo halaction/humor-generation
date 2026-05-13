@@ -4,6 +4,7 @@ import argparse
 from dataclasses import asdict
 from pathlib import Path
 
+from dotenv import load_dotenv
 import yaml
 
 from src.training.config import MRVFConfig
@@ -17,6 +18,7 @@ def _load_config(path: Path) -> MRVFConfig:
 
 
 def main() -> None:
+    load_dotenv(Path(".env"))
     parser = argparse.ArgumentParser(description="Train MRVF model with grouped trace sampling.")
     parser.add_argument("--config", required=True)
     args = parser.parse_args()

@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import re
 from abc import ABC
 from pathlib import Path
@@ -82,6 +83,18 @@ class BasePipeline(ABC, Generic[P, T]):
 
     def _check_buffer_size(self, write_buffer: list[T]) -> bool:
         raise NotImplementedError
+
+    async def _close_client(self) -> None:
+        if not getattr(self, "_owns_client", False):
+            return
+
+        close = getattr(self.client, "close", None)
+        if close is None:
+            return
+
+        result = close()
+        if inspect.isawaitable(result):
+            await result
 
     async def _wait_one(
         self,

@@ -13,7 +13,7 @@ from src.pipelines.references import ReferencesPipeline
 
 
 def _render_prompt(keywords: list[str]) -> str:
-    return f"Write a joke using the following keyword(s): {', '.join(keywords)}"
+    return f"Write a joke using the following keywords: {', '.join(keywords)}"
 
 
 class _MockEmbeddingItem:
@@ -155,6 +155,33 @@ def _load_all_split_rows(output_dir: Path) -> list[dict[str, object]]:
     return rows
 
 
+def test_references_pipeline_filters_rows_with_too_few_references(tmp_path: Path) -> None:
+    dataset = Dataset.from_dict(
+        {
+            "id": [0, 1, 2],
+            "keywords": [["cat"], ["dog"], ["park"]],
+            "references": [["one"], ["one", "two"], ["one", "two", "three"]],
+            "scores": [[0.9], [0.9, 0.8], [0.9, 0.8, 0.7]],
+        }
+    )
+    pipeline = ReferencesPipeline(
+        pipeline_config=ReferencesConfig(
+            model="mock-model",
+            dimensions=2,
+            min_references=2,
+            validation_fraction=0.2,
+            test_fraction=0.2,
+        ),
+        output_dir=tmp_path / "references",
+        client=_MockAsyncClient({}),
+    )
+
+    rows = pipeline._deduplicate_dataset(dataset).to_list()
+
+    assert [row["keywords"] for row in rows] == [["dog"], ["park"]]
+    assert [row["id"] for row in rows] == [0, 1]
+
+
 def test_references_pipeline_deduplicates_keyword_groups_across_jokes(tmp_path: Path) -> None:
     references_module.faiss = _FakeFaiss
 
@@ -206,6 +233,7 @@ def test_references_pipeline_deduplicates_keyword_groups_across_jokes(tmp_path: 
             index_dirname=str(tmp_path / "index"),
             oversample=2,
             min_similarity=0.0,
+            min_references=1,
             validation_fraction=0.2,
             test_fraction=0.2,
         ),
@@ -214,6 +242,7 @@ def test_references_pipeline_deduplicates_keyword_groups_across_jokes(tmp_path: 
     )
 
     asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=False))
+    pipeline.train_test_split()
     rows = _load_all_split_rows(tmp_path / "references")
     by_keywords = {tuple(cast("list[str]", row["keywords"])): row for row in rows}
 
@@ -271,6 +300,7 @@ def test_references_pipeline_writes_train_validation_test_splits(tmp_path: Path)
             index_dirname=str(tmp_path / "index"),
             oversample=1,
             min_similarity=-1.0,
+            min_references=1,
             validation_fraction=0.2,
             test_fraction=0.2,
             random_seed=7,
@@ -280,6 +310,7 @@ def test_references_pipeline_writes_train_validation_test_splits(tmp_path: Path)
     )
 
     asyncio.run(pipeline.run(keywords=keywords, embeddings=embeddings, jokes=jokes, resume=False))
+    pipeline.train_test_split()
     train_rows = _load_split_rows(tmp_path / "references", "train")
     validation_rows = _load_split_rows(tmp_path / "references", "validation")
     test_rows = _load_split_rows(tmp_path / "references", "test")
@@ -331,6 +362,7 @@ def test_references_pipeline_resume_uses_existing_splits(tmp_path: Path) -> None
             faiss_train_size=1,
             faiss_batch_size=1,
             index_dirname=str(tmp_path / "index"),
+            min_references=1,
             validation_fraction=0.2,
             test_fraction=0.2,
         ),

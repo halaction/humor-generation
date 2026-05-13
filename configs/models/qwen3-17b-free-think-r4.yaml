@@ -1,47 +1,54 @@
 model_name_or_path: Qwen/Qwen3-1.7B
-output_dir: data/checkpoints/qwen3-17b-trace-r3
+output_dir: data/checkpoints/qwen3-17b-free-think-r4
 dataset_name: halaction/humor-generation
 dataset_config_name: references
 train_split: train
 eval_split: validation
-max_steps: 300
-learning_rate: 1.0e-5
+max_steps: 80
+learning_rate: 7.0e-6
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 4
-num_generations: 4
+warmup_ratio: 0.05
+num_generations: 2
 max_completion_length: 128
-max_trace_length: 96
+max_trace_length: 768
 max_reference_length: 64
 num_reference_samples: 2
 objective_mode: log_mass_surrogate
 reward_transform: log_mass
-advantage_mode: loo
+advantage_mode: grpo_zscore
 reference_length_normalization: token_mean
 trace_loss_coef: 1.0
-reference_loss_coef: 0.25
+reference_loss_coef: 0.1
 use_kl: false
 beta: 0.0
+temperature: 0.6
+top_p: 0.95
+top_k: 20
+repetition_penalty: 1.0
 seed: 42
 use_thinking: true
 strip_thinking_in_outputs: true
 trace_format: qwen_chat_thinking
+trace_prompt_template: training_trace_prompt.j2
 use_peft: true
 lora_r: 32
 lora_alpha: 64
-gradient_checkpointing: false
+gradient_checkpointing: true
 torch_dtype: bfloat16
-eval_every_steps: 25
-eval_sample_size: 16
+eval_every_steps: 20
+eval_sample_size: 4
 logging_steps: 5
-save_steps: 50
-metrics_log_path: data/logs/qwen3-17b-mrvf-trace-r3-metrics.jsonl
-sample_log_path: data/logs/qwen3-17b-mrvf-trace-r3-samples.jsonl
+save_steps: 40
+metrics_log_path: data/logs/qwen3-17b-free-think-r4-metrics.jsonl
+sample_log_path: data/logs/qwen3-17b-free-think-r4-samples.jsonl
 report_to_wandb: true
 wandb_project: humor-generation
-wandb_run_name: qwen3-17b-mrvf-lora-a100-r3-trace
+wandb_run_name: qwen3-17b-mrvf-free-think-r4-768x2
 wandb_tags:
   - qwen3-17b
   - mrvf
-  - lora
+  - free-thinking
   - a100
-  - trace-r3
+  - r4
+  - 768x2

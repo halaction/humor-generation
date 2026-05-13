@@ -1,6 +1,5 @@
 import argparse
 import shutil
-from dataclasses import dataclass
 
 from src.config import config
 from src.logging import get_logger
@@ -13,58 +12,57 @@ from src.pipelines.references import ReferencesPipeline
 logger = get_logger(__name__)
 
 
-@dataclass
-class DataBuildResult:
-    jokes_split: str
-    embeddings_split: str
-    keywords_split: str
-
-
 class DataPipeline:
     @staticmethod
-    def _clear_reference_index_cache() -> None:
-        index_dir = DATA_DIR / config.references.index_dirname
-        if not index_dir.exists():
-            return
-        shutil.rmtree(index_dir)
-        logger.info("index_cache.cleared", path=str(index_dir))
+    def _clear_derived_artifacts() -> None:
+        paths = [
+            DATA_DIR / config.jokes.hf_config_name,
+            DATA_DIR / config.embeddings.hf_config_name,
+            DATA_DIR / config.keywords.hf_config_name,
+            DATA_DIR / config.references.hf_config_name,
+            DATA_DIR / config.references.index_dirname,
+        ]
+        for path in paths:
+            if not path.exists():
+                continue
+            shutil.rmtree(path)
+            logger.info("artifact_cache.cleared", path=str(path))
 
-    def build(
-        self,
-        jokes_split: str = "train",
-        embeddings_split: str = "train",
-        keywords_split: str = "train",
-        resume: bool = False,
-    ) -> DataBuildResult:
-        JokesPipeline().build()
+    def build(self, resume: bool = False):
+        embeddings_jokes_split = config.embeddings.jokes_split
+        keywords_jokes_split = config.keywords.jokes_split
+        embeddings_split = config.keywords.embeddings_split
+        references_jokes_split = config.references.jokes_split
+        references_embeddings_split = config.references.embeddings_split
+        keywords_split = config.references.keywords_split
+
         if not resume:
-            self._clear_reference_index_cache()
+            self._clear_derived_artifacts()
+        JokesPipeline().build()
         EmbeddingsPipeline().build(
-            split=embeddings_split,
+            jokes_split=embeddings_jokes_split,
             resume=resume,
         )
         KeywordsPipeline().build(
-            jokes_split=jokes_split,
+            jokes_split=keywords_jokes_split,
             embeddings_split=embeddings_split,
             resume=resume,
         )
         ReferencesPipeline().build(
-            jokes_split=jokes_split,
-            embeddings_split=embeddings_split,
+            jokes_split=references_jokes_split,
+            embeddings_split=references_embeddings_split,
             keywords_split=keywords_split,
             resume=resume,
         )
         logger.info(
             "build.done",
-            jokes_split=jokes_split,
+            embeddings_jokes_split=embeddings_jokes_split,
+            keywords_jokes_split=keywords_jokes_split,
+            references_jokes_split=references_jokes_split,
             embeddings_split=embeddings_split,
+            references_embeddings_split=references_embeddings_split,
             keywords_split=keywords_split,
             resume=resume,
-        )
-        return DataBuildResult(
-            jokes_split=jokes_split,
-            embeddings_split=embeddings_split,
-            keywords_split=keywords_split,
         )
 
     def publish(self, private: bool = False) -> None:
@@ -77,20 +75,15 @@ class DataPipeline:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run full data pipeline for finalized training references.")
-    parser.add_argument("--jokes-split", default="train")
-    parser.add_argument("--embeddings-split", default="train")
-    parser.add_argument("--keywords-split", default="train")
+    parser.add_argument("--build", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--publish", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--private", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args()
 
     pipeline = DataPipeline()
-    pipeline.build(
-        jokes_split=args.jokes_split,
-        embeddings_split=args.embeddings_split,
-        keywords_split=args.keywords_split,
-        resume=False,
-    )
+    if args.build:
+        pipeline.build(resume=args.resume)
     if args.publish:
         pipeline.publish(private=args.private)
 

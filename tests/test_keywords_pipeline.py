@@ -1,11 +1,12 @@
 import asyncio
 from pathlib import Path
 
+import numpy as np
 import pyarrow.parquet as pq
 
 from datasets import Dataset
 from src.config import KeywordsConfig
-from src.pipelines.keywords import KeywordsPipeline
+from src.pipelines.keywords import KeywordsPipeline, _cosine_relevance_scores, _select_top_indices_with_mmr
 
 
 class _MockEmbeddingItem:
@@ -87,3 +88,29 @@ def test_keywords_pipeline_uses_template_instruction_and_skips_empty_rows(tmp_pa
         query.startswith("Instruct: Given a keyword for a joke, retrieve jokes") for query in client.embeddings.queries
     )
     assert max(client.embeddings.batch_sizes) <= 2
+
+
+def test_keyword_scoring_sanitizes_unstable_embeddings() -> None:
+    joke_embedding = np.array([np.inf, 1.0, 0.0], dtype=np.float32)
+    candidate_embeddings = np.array(
+        [
+            [np.nan, 0.0, 1.0],
+            [1.0e38, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+
+    scores = _cosine_relevance_scores(
+        joke_embedding=joke_embedding,
+        candidate_embeddings=candidate_embeddings,
+    )
+    selected = _select_top_indices_with_mmr(
+        candidate_embeddings=candidate_embeddings,
+        relevance_scores=scores,
+        top_n=2,
+        diversity=0.7,
+    )
+
+    assert np.isfinite(scores).all()
+    assert len(selected) == 2

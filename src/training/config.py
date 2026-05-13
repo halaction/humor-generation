@@ -32,7 +32,17 @@ class MRVFConfig:
     beta: float = 0.0
     temperature: float = 1.0
     top_p: float = 0.95
-    trace_instruction: str = "First think briefly about setup and twist. Return only the plan."
+    top_k: int | None = None
+    repetition_penalty: float = 1.0
+    trace_instruction: str = (
+        "Think briefly about a joke plan. Use at most three short sentences: setup, wordplay, twist. "
+        "Do not write the final joke."
+    )
+    trace_prompt_template: str = "training_trace_prompt.j2"
+    force_close_thinking: bool = False
+    forced_thinking_suffix: str = (
+        "\n\nConsidering the limited time, I will now answer from this reasoning.\n</think>\n\n"
+    )
     answer_prefix: str = "\nFinal joke:\n"
     seed: int = 42
     use_thinking: bool = True
@@ -53,10 +63,17 @@ class MRVFConfig:
     torch_dtype: Literal["auto", "float16", "bfloat16", "float32"] = "auto"
     gradient_checkpointing: bool = False
     eval_every_steps: int = 0
+    eval_sample_size: int = 16
     trace_format: Literal["plain", "qwen_chat_thinking"] = "plain"
     logging_steps: int = 10
     save_steps: int = 100
+    metrics_log_path: str = "data/logs/mrvf_metrics.jsonl"
     sample_log_path: str = "data/logs/mrvf_samples.jsonl"
+    report_to_wandb: bool = False
+    wandb_project: str = "humor-generation"
+    wandb_run_name: str | None = None
+    wandb_entity: str | None = None
+    wandb_tags: tuple[str, ...] = ()
 
     def validate(self) -> None:
         if self.num_generations < 2:
@@ -73,4 +90,19 @@ class MRVFConfig:
             raise ValueError(msg)
         if self.objective_mode == "exact_scaled" and self.reference_length_normalization != "none":
             msg = "`objective_mode=exact_scaled` requires `reference_length_normalization=none`."
+            raise ValueError(msg)
+        if self.eval_every_steps < 0 or self.eval_sample_size < 0:
+            msg = "`eval_every_steps` and `eval_sample_size` must be non-negative."
+            raise ValueError(msg)
+        if self.top_k is not None and self.top_k <= 0:
+            msg = "`top_k` must be positive when set."
+            raise ValueError(msg)
+        if self.repetition_penalty <= 0:
+            msg = "`repetition_penalty` must be positive."
+            raise ValueError(msg)
+        if not self.trace_prompt_template.strip():
+            msg = "`trace_prompt_template` must not be empty."
+            raise ValueError(msg)
+        if self.force_close_thinking and not self.forced_thinking_suffix.strip():
+            msg = "`forced_thinking_suffix` must not be empty when `force_close_thinking=True`."
             raise ValueError(msg)

@@ -10,48 +10,55 @@ jokes:
 
 embeddings:
   hf_config_name: "embeddings"
+  jokes_split: "train"
   model: "qwen/qwen3-embedding-8b"
   dimensions: 1024
-  batch_size: 64
+  batch_size: 256
   shard_size: 10000
   max_parallel_requests: 5
-  timeout: 60
-  max_retries: 3
+  timeout: 120
+  max_retries: 5
 
 keywords:
   hf_config_name: "keywords"
+  jokes_split: "train[:1500]"
+  embeddings_split: "train"
+  model: "qwen/qwen3-embedding-8b"
   ngram_min: 1
   ngram_max: 1
   top_n: 3
   mmr_diversity: 0.7
   stopwords: true
   max_candidates: 64
-  model: "qwen/qwen3-embedding-8b"
   dimensions: 1024
-  batch_size: 256
+  batch_size: 64
   shard_size: 10000
   max_parallel_requests: 15
-  timeout: 60
-  max_retries: 3
+  timeout: 120
+  max_retries: 5
 
 references:
   hf_config_name: "references"
+  jokes_split: "train"
+  embeddings_split: "train"
+  keywords_split: "train"
   model: "qwen/qwen3-embedding-8b"
   dimensions: 1024
   min_keywords: 1
   max_keywords: 2
   top_k: 5
+  min_references: 2
   min_similarity: 0.5
-  input_batch_size: 64
-  output_batch_size: 64
+  input_batch_size: 128
+  output_batch_size: 128
   shard_size: 10000
   max_parallel_requests: 5
-  timeout: 60
-  max_retries: 3
+  timeout: 120
+  max_retries: 5
   faiss_nlist: 4096
-  faiss_nprobe: 32
+  faiss_nprobe: 64
   faiss_train_size: 200000
-  faiss_batch_size: 10000
+  faiss_batch_size: 20000
   oversample: 10
   validation_fraction: 0.1
   test_fraction: 0.1

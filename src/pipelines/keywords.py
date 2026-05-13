@@ -29,11 +29,22 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+_EMBEDDING_VALUE_LIMIT = 1_000_000.0
+
+
+def _sanitize_embedding_array(values: Any) -> npt.NDArray[np.float32]:
+    array = np.array(values, dtype=np.float32, copy=True)
+    np.nan_to_num(array, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    np.clip(array, -_EMBEDDING_VALUE_LIMIT, _EMBEDDING_VALUE_LIMIT, out=array)
+    return array
+
 
 def _cosine_relevance_scores(
     joke_embedding: npt.NDArray[np.float32],
     candidate_embeddings: npt.NDArray[np.float32],
 ) -> npt.NDArray[np.float32]:
+    joke_embedding = _sanitize_embedding_array(joke_embedding)
+    candidate_embeddings = _sanitize_embedding_array(candidate_embeddings)
     joke_norm = np.linalg.norm(joke_embedding)
     candidate_norms = np.linalg.norm(candidate_embeddings, axis=1)
     relevance_scores = np.zeros(candidate_embeddings.shape[0], dtype=np.float32)
@@ -51,6 +62,8 @@ def _select_top_indices_with_mmr(
     top_n: int,
     diversity: float,
 ) -> npt.NDArray[np.int64]:
+    candidate_embeddings = _sanitize_embedding_array(candidate_embeddings)
+    relevance_scores = _sanitize_embedding_array(relevance_scores)
     candidate_count = candidate_embeddings.shape[0]
     if candidate_count == 0 or top_n <= 0:
         return np.array([], dtype=np.int64)
@@ -91,6 +104,7 @@ class KeywordsPipeline(BasePipeline):
     ) -> None:
         self.config = pipeline_config or config.keywords
         self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
+        self._owns_client = client is None
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
@@ -163,8 +177,8 @@ class KeywordsPipeline(BasePipeline):
 
             candidate_embeddings = await self._embed_texts(candidates)
 
-            candidate_embeddings = np.asarray(candidate_embeddings, dtype=np.float32)
-            joke_embedding = np.asarray(inputs.embedding, dtype=np.float32)
+            candidate_embeddings = _sanitize_embedding_array(candidate_embeddings)
+            joke_embedding = _sanitize_embedding_array(inputs.embedding)
 
             relevance_scores = _cosine_relevance_scores(
                 joke_embedding=joke_embedding,
@@ -201,51 +215,54 @@ class KeywordsPipeline(BasePipeline):
         resume: bool = False,
     ) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.next_part_index = self._get_next_part_index()
+        try:
+            self.next_part_index = self._get_next_part_index()
 
-        jokes_frame = cast("pl.DataFrame", jokes.to_polars())
-        embeddings_frame = cast("pl.DataFrame", embeddings.to_polars())
-        joined_frame = jokes_frame.join(embeddings_frame, on="id", how="inner").select(["id", "text", "embedding"])
-        dataset = Dataset.from_polars(joined_frame)
+            jokes_frame = cast("pl.DataFrame", jokes.to_polars())
+            embeddings_frame = cast("pl.DataFrame", embeddings.to_polars())
+            joined_frame = jokes_frame.join(embeddings_frame, on="id", how="inner").select(["id", "text", "embedding"])
+            dataset = Dataset.from_polars(joined_frame)
 
-        dataset = self._check_progress(dataset, resume)
+            dataset = self._check_progress(dataset, resume)
 
-        write_buffer: list[KeywordsOutputs] = []
-        semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        pending_tasks: set[asyncio.Task[KeywordsOutputs | None]] = set()
+            write_buffer: list[KeywordsOutputs] = []
+            semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
+            pending_tasks: set[asyncio.Task[KeywordsOutputs | None]] = set()
 
-        for item in tqdm(dataset):
-            item = cast("dict[str, Any]", item)
-            inputs = KeywordsInputs(
-                id=item["id"],
-                text=item["text"],
-                embedding=item["embedding"],
-            )
+            for item in tqdm(dataset):
+                item = cast("dict[str, Any]", item)
+                inputs = KeywordsInputs(
+                    id=item["id"],
+                    text=item["text"],
+                    embedding=item["embedding"],
+                )
 
-            task = asyncio.create_task(self._extract_keywords(inputs=inputs, semaphore=semaphore))
-            pending_tasks.add(task)
+                task = asyncio.create_task(self._extract_keywords(inputs=inputs, semaphore=semaphore))
+                pending_tasks.add(task)
 
-            if len(pending_tasks) >= self.config.max_parallel_requests:
+                if len(pending_tasks) >= self.config.max_parallel_requests:
+                    await self._wait_one(
+                        pending_tasks=pending_tasks,
+                        write_buffer=write_buffer,
+                    )
+
+            while pending_tasks:
                 await self._wait_one(
                     pending_tasks=pending_tasks,
                     write_buffer=write_buffer,
                 )
 
-        while pending_tasks:
-            await self._wait_one(
-                pending_tasks=pending_tasks,
+            self._flush_buffer(
                 write_buffer=write_buffer,
             )
 
-        self._flush_buffer(
-            write_buffer=write_buffer,
-        )
-
-        logger.info(
-            "run.done",
-            model=self.config.model,
-            output_dir=str(self.output_dir),
-        )
+            logger.info(
+                "run.done",
+                model=self.config.model,
+                output_dir=str(self.output_dir),
+            )
+        finally:
+            await self._close_client()
 
     def build(
         self,
@@ -259,7 +276,7 @@ class KeywordsPipeline(BasePipeline):
 
         embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
         if not embeddings_dir.exists():
-            EmbeddingsPipeline().build(split=embeddings_split, resume=True)
+            EmbeddingsPipeline().build(jokes_split=config.embeddings.jokes_split, resume=True)
 
         jokes = load_dataset("parquet", data_dir=str(jokes_dir), split=jokes_split)
         embeddings = load_dataset("parquet", data_dir=str(embeddings_dir), split=embeddings_split)

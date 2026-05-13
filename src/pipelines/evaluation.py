@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
-from datasets import Dataset, concatenate_datasets, load_dataset
+from datasets import Dataset, concatenate_datasets
 from openai import AsyncOpenAI
 from tqdm.auto import tqdm
 
@@ -29,10 +29,12 @@ class EvaluationPipeline(BasePipeline):
         pipeline_config: EvaluationConfig | None = None,
         output_dir: Path | None = None,
         client: AsyncOpenAI | None = None,
+        leaderboard_dir: Path | None = None,
     ) -> None:
         self.config = pipeline_config or config.evaluation
-        self.output_dir = output_dir or DATA_DIR / self.config.hf_config_name
-        self.leaderboard_dir = DATA_DIR / "leaderboard"
+        base_output_dir = output_dir or DATA_DIR
+        self.output_dir = base_output_dir / self.config.hf_config_name
+        self.leaderboard_dir = leaderboard_dir or base_output_dir / "leaderboard"
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
@@ -457,16 +459,26 @@ class EvaluationPipeline(BasePipeline):
         candidate_paths: list[Path],
         split: str = "train",
         resume: bool = True,
+        limit_references: int | None = None,
     ) -> None:
         datasets = []
         for path in candidate_paths:
-            dataset = load_dataset(
-                "parquet",
-                data_files={split: str(path / split / "part-*.parquet")},
-                split=split,
-            )
-            datasets.append(dataset)
+            rows: list[dict[str, Any]] = []
+            for part_path in sorted((path / split).glob("part-*.parquet")):
+                rows.extend(pq.read_table(part_path).to_pylist())
+            if rows:
+                datasets.append(Dataset.from_list(rows))
+        if not datasets:
+            msg = "No candidate parquet parts found."
+            raise FileNotFoundError(msg)
         candidates = concatenate_datasets(datasets)
+        if limit_references is not None:
+            if limit_references <= 0:
+                msg = "`limit_references` must be positive when provided."
+                raise ValueError(msg)
+            ids = sorted(set(candidates["id"]))[:limit_references]
+            allowed = set(ids)
+            candidates = candidates.filter(lambda row: row["id"] in allowed)
         asyncio.run(self.run(candidates=candidates, resume=resume))
 
         logger.info("build.done", output_dir=str(self.output_dir))

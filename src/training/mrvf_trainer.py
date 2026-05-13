@@ -4,6 +4,7 @@ import random
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 import torch
@@ -11,6 +12,7 @@ from datasets import Dataset
 from torch.optim import AdamW
 from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
 
+from src.templates import environment
 from src.training.advantages import grpo_zscore_advantages, loo_advantages
 from src.training.config import MRVFConfig
 from src.training.data import prepare_mrvf_dataset
@@ -34,16 +36,31 @@ class TraceBatch:
     prompt_ids: list[list[int]]
     trace_ids: list[list[int]]
     trace_texts: list[str]
+    reference_prefix_ids: list[list[int]]
+    forced_think_close: list[bool]
+    reference_prefix_lengths: list[int]
     references: list[list[str]]
+
+
+@dataclass
+class TraceDebugSample:
+    trace_index: int
+    trace: str
+    reward: float
+    advantage: float
+    trace_token_length: int
+    is_truncated: bool
+    closed_think: bool
+    forced_think_close: bool
+    forced_suffix_preview: str
+    reference_prefix_length: int
 
 
 @dataclass
 class BatchDebugSample:
     prompt: str
-    trace: str
     references: list[str]
-    reward: float
-    advantage: float
+    traces: list[TraceDebugSample]
     trace_loss: float
     reference_loss: float
 
@@ -105,6 +122,16 @@ def _sequence_logprobs_from_ids(
     return result
 
 
+def _find_subsequence_end(ids: list[int], pattern: list[int]) -> int | None:
+    if not pattern:
+        return None
+    last_start = len(ids) - len(pattern)
+    for start in range(last_start + 1):
+        if ids[start : start + len(pattern)] == pattern:
+            return start + len(pattern)
+    return None
+
+
 class MRVFTrainer:
     def __init__(self, cfg: MRVFConfig) -> None:
         cfg.validate()
@@ -140,6 +167,29 @@ class MRVFTrainer:
             num_training_steps=cfg.max_steps,
         )
         self._current_step = 0
+        self._wandb_run: Any | None = None
+        if cfg.report_to_wandb:
+            self._init_wandb()
+
+    def _init_wandb(self) -> None:
+        try:
+            import wandb
+        except ImportError as error:  # pragma: no cover
+            msg = "`report_to_wandb=True` requires the `wandb` package."
+            raise RuntimeError(msg) from error
+
+        self._wandb_run = wandb.init(
+            project=self.cfg.wandb_project,
+            entity=self.cfg.wandb_entity,
+            name=self.cfg.wandb_run_name,
+            tags=list(self.cfg.wandb_tags),
+            config=asdict(self.cfg),
+        )
+
+    def _wandb_log(self, payload: dict[str, Any], step: int) -> None:
+        if self._wandb_run is None:
+            return
+        self._wandb_run.log(payload, step=step)
 
     def _enable_lora(self) -> None:
         try:
@@ -159,8 +209,9 @@ class MRVFTrainer:
         self.model = get_peft_model(self.model, peft_config)
 
     def _build_trace_prompt_text(self, prompt: str) -> str:
+        trace_prompt = environment.get_template(self.cfg.trace_prompt_template).render(prompt=prompt).strip()
         if self.cfg.trace_format == "qwen_chat_thinking":
-            messages = [{"role": "user", "content": f"{prompt}\n{self.cfg.trace_instruction}"}]
+            messages = [{"role": "user", "content": trace_prompt}]
             try:
                 return self.tokenizer.apply_chat_template(
                     messages,
@@ -171,8 +222,8 @@ class MRVFTrainer:
             except TypeError:
                 return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         if not self.cfg.use_thinking:
-            return f"{prompt}\n{self.cfg.trace_instruction}"
-        return f"{prompt}\nThink briefly using <think>...</think>, and output only the plan inside the think block."
+            return trace_prompt
+        return f"{trace_prompt}\nThink inside <think>...</think> before the final joke."
 
     def _generate_trace_batch(self, prompts: list[str], references: list[list[str]]) -> TraceBatch:
         grouped_prompt_texts: list[str] = []
@@ -191,19 +242,41 @@ class MRVFTrainer:
         for row_ids, row_mask in zip(input_ids.tolist(), attention_mask.tolist(), strict=True):
             grouped_prompt_ids.append([token for token, mask in zip(row_ids, row_mask, strict=True) if mask == 1])
 
-        with torch.no_grad():
-            generated = self.model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                do_sample=True,
-                max_new_tokens=self.cfg.max_trace_length,
-                temperature=self.cfg.temperature,
-                top_p=self.cfg.top_p,
-                pad_token_id=self.tokenizer.pad_token_id,
-            )
+        was_training = self.model.training
+        if self.cfg.gradient_checkpointing and hasattr(self.model, "gradient_checkpointing_disable"):
+            self.model.gradient_checkpointing_disable()
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                generation_kwargs: dict[str, Any] = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "do_sample": True,
+                    "max_new_tokens": self.cfg.max_trace_length,
+                    "temperature": self.cfg.temperature,
+                    "top_p": self.cfg.top_p,
+                    "repetition_penalty": self.cfg.repetition_penalty,
+                    "pad_token_id": self.tokenizer.pad_token_id,
+                }
+                if self.cfg.top_k is not None:
+                    generation_kwargs["top_k"] = self.cfg.top_k
+                generated = self.model.generate(
+                    **generation_kwargs,
+                )
+        finally:
+            if self.cfg.gradient_checkpointing and hasattr(self.model, "gradient_checkpointing_enable"):
+                self.model.gradient_checkpointing_enable()
+            if was_training:
+                self.model.train()
 
+        think_close_ids = self.tokenizer("</think>", add_special_tokens=False)["input_ids"]
+        forced_suffix_ids = self.tokenizer(self.cfg.forced_thinking_suffix, add_special_tokens=False)["input_ids"]
+        answer_prefix_ids = self.tokenizer(self.cfg.answer_prefix, add_special_tokens=False)["input_ids"]
         trace_ids: list[list[int]] = []
         trace_texts: list[str] = []
+        reference_prefix_ids: list[list[int]] = []
+        forced_think_close: list[bool] = []
+        reference_prefix_lengths: list[int] = []
         for idx in range(generated.shape[0]):
             row = generated[idx].tolist()
             completion = extract_completion_ids(
@@ -211,14 +284,29 @@ class MRVFTrainer:
                 input_width=input_width,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
-            trace_ids.append(completion)
-            trace_texts.append(self.tokenizer.decode(completion, skip_special_tokens=True))
+            close_end = _find_subsequence_end(completion, think_close_ids)
+            if close_end is not None:
+                sampled_trace = completion[:close_end]
+                close_was_forced = False
+            else:
+                sampled_trace = completion
+                close_was_forced = self.cfg.force_close_thinking
+            suffix_ids = forced_suffix_ids if close_was_forced else []
+            ref_prefix = grouped_prompt_ids[idx] + sampled_trace + suffix_ids + answer_prefix_ids
+            trace_ids.append(sampled_trace)
+            trace_texts.append(self.tokenizer.decode(sampled_trace, skip_special_tokens=True))
+            reference_prefix_ids.append(ref_prefix)
+            forced_think_close.append(close_was_forced)
+            reference_prefix_lengths.append(len(ref_prefix))
 
         return TraceBatch(
             prompt_texts=grouped_prompt_texts,
             prompt_ids=grouped_prompt_ids,
             trace_ids=trace_ids,
             trace_texts=trace_texts,
+            reference_prefix_ids=reference_prefix_ids,
+            forced_think_close=forced_think_close,
+            reference_prefix_lengths=reference_prefix_lengths,
             references=grouped_references,
         )
 
@@ -253,10 +341,8 @@ class MRVFTrainer:
         payload = {
             "step": step,
             "prompt": sample.prompt,
-            "trace": sample.trace,
             "references": sample.references,
-            "reward": sample.reward,
-            "advantage": sample.advantage,
+            "traces": [asdict(trace) for trace in sample.traces],
             "trace_loss": sample.trace_loss,
             "reference_loss": sample.reference_loss,
         }
@@ -264,6 +350,107 @@ class MRVFTrainer:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload) + "\n")
+
+    def _append_metrics_log(self, *, step: int, metrics: dict[str, float], step_seconds: float) -> None:
+        payload: dict[str, float | int] = {
+            "step": step,
+            "step_seconds": step_seconds,
+            "learning_rate": float(self.scheduler.get_last_lr()[0]),
+            **metrics,
+        }
+        if torch.cuda.is_available():
+            payload["cuda_memory_allocated_gb"] = torch.cuda.memory_allocated(self.device) / 1e9
+            payload["cuda_memory_reserved_gb"] = torch.cuda.memory_reserved(self.device) / 1e9
+
+        path = Path(self.cfg.metrics_log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload) + "\n")
+
+        if self.cfg.logging_steps > 0 and step % self.cfg.logging_steps == 0:
+            print(json.dumps(payload), flush=True)
+        self._wandb_log(dict(payload), step=step)
+
+    def _log_eval_sample_table(self, *, step: int, sample: BatchDebugSample | None) -> None:
+        if self._wandb_run is None or sample is None:
+            return
+        try:
+            import wandb
+        except ImportError:  # pragma: no cover
+            return
+        table = wandb.Table(
+            columns=[
+                "step",
+                "prompt",
+                "trace_index",
+                "trace",
+                "references",
+                "reward",
+                "advantage",
+                "trace_token_length",
+                "is_truncated",
+                "closed_think",
+                "forced_think_close",
+                "forced_suffix_preview",
+                "reference_prefix_length",
+            ],
+            data=[
+                [
+                    step,
+                    sample.prompt,
+                    trace.trace_index,
+                    trace.trace,
+                    "\n\n".join(sample.references),
+                    trace.reward,
+                    trace.advantage,
+                    trace.trace_token_length,
+                    trace.is_truncated,
+                    trace.closed_think,
+                    trace.forced_think_close,
+                    trace.forced_suffix_preview,
+                    trace.reference_prefix_length,
+                ]
+                for trace in sample.traces
+            ],
+        )
+        self._wandb_log({"eval/samples": table}, step=step)
+
+    def _evaluate_fixed_rows(self, *, rows: list[dict[str, Any]], step: int) -> dict[str, float]:
+        if not rows:
+            return {}
+
+        was_training = self.model.training
+        self.model.eval()
+        metrics_by_key: dict[str, list[float]] = {}
+        last_sample: BatchDebugSample | None = None
+        batch_size = max(1, self.cfg.per_device_train_batch_size)
+
+        with torch.no_grad():
+            for start in range(0, len(rows), batch_size):
+                batch = rows[start : start + batch_size]
+                _, metrics, sample = self._compute_losses_for_batch(batch)
+                for key, value in metrics.items():
+                    metrics_by_key.setdefault(key, []).append(value)
+                last_sample = sample
+
+        if was_training:
+            self.model.train()
+
+        eval_metrics = {
+            f"eval/{key}": float(sum(values) / max(len(values), 1))
+            for key, values in metrics_by_key.items()
+        }
+        if "eval/reward_mean" in eval_metrics:
+            eval_metrics["eval/log_mass_mean"] = eval_metrics["eval/reward_mean"]
+        eval_payload = {"step": step, **eval_metrics}
+        path = Path(self.cfg.metrics_log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(eval_payload) + "\n")
+        self._wandb_log(eval_metrics, step=step)
+        self._log_eval_sample_table(step=step, sample=last_sample)
+        print(json.dumps(eval_payload), flush=True)
+        return eval_metrics
 
     def _save_checkpoint(self, step: int) -> None:
         if self.cfg.save_steps <= 0 or step == 0 or step % self.cfg.save_steps != 0:
@@ -283,16 +470,11 @@ class MRVFTrainer:
         grouped_size = len(batch_rows)
 
         trace_logprob = self._trace_logprobs(trace_batch, self.model)
-        prefix_ids_for_refs = [
-            prompt_ids + trace_ids + self.tokenizer(self.cfg.answer_prefix, add_special_tokens=False)["input_ids"]
-            for prompt_ids, trace_ids in zip(trace_batch.prompt_ids, trace_batch.trace_ids, strict=True)
-        ]
-
         with torch.no_grad():
             reward_outputs = teacher_forced_reference_logps_from_ids(
                 model=self.model,
                 tokenizer=self.tokenizer,
-                prefix_ids_per_sample=prefix_ids_for_refs,
+                prefix_ids_per_sample=trace_batch.reference_prefix_ids,
                 references=trace_batch.references,
                 max_reference_length=self.cfg.max_reference_length,
                 length_normalization=self.cfg.reference_length_normalization,
@@ -300,7 +482,7 @@ class MRVFTrainer:
         ref_outputs = teacher_forced_reference_logps_from_ids(
             model=self.model,
             tokenizer=self.tokenizer,
-            prefix_ids_per_sample=prefix_ids_for_refs,
+            prefix_ids_per_sample=trace_batch.reference_prefix_ids,
             references=trace_batch.references,
             max_reference_length=self.cfg.max_reference_length,
             length_normalization=self.cfg.reference_length_normalization,
@@ -339,21 +521,83 @@ class MRVFTrainer:
             + self.cfg.reference_loss_coef * reference_loss
             + self.cfg.beta * kl_term
         )
+        grouped_rewards = rewards_for_adv.view(grouped_size, self.cfg.num_generations)
+        trace_lengths = torch.tensor(
+            [len(trace_ids) for trace_ids in trace_batch.trace_ids],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        if trace_lengths.numel() == 0:
+            trace_lengths = torch.zeros(1, dtype=torch.float32, device=self.device)
+        truncated = torch.tensor(
+            [len(trace_ids) >= self.cfg.max_trace_length for trace_ids in trace_batch.trace_ids],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        closed_think = torch.tensor(
+            ["</think>" in trace_text for trace_text in trace_batch.trace_texts],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        empty_trace = torch.tensor(
+            [len(trace_ids) == 0 for trace_ids in trace_batch.trace_ids],
+            dtype=torch.float32,
+            device=self.device,
+        )
+        forced_close = torch.tensor(trace_batch.forced_think_close, dtype=torch.float32, device=self.device)
+        reference_prefix_lengths = torch.tensor(
+            trace_batch.reference_prefix_lengths,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        if reference_prefix_lengths.numel() == 0:
+            reference_prefix_lengths = torch.zeros(1, dtype=torch.float32, device=self.device)
         metrics = {
             "loss": float(loss.detach().item()),
             "trace_loss": float(trace_loss.detach().item()),
             "reference_loss": float(reference_loss.detach().item()),
             "kl": float(kl_term.detach().item()),
             "reward_mean": float(rewards_for_adv.mean().item()),
+            "reward_std": float(rewards_for_adv.std(unbiased=False).item()),
+            "reward_group_std_mean": float(grouped_rewards.std(dim=1, unbiased=False).mean().item()),
+            "advantage_mean": float(advantages.mean().item()),
+            "advantage_std": float(advantages.std(unbiased=False).item()),
+            "advantage_abs_mean": float(advantages.abs().mean().item()),
+            "trace_logprob_mean": float(trace_logprob.detach().mean().item()),
+            "trace_logprob_std": float(trace_logprob.detach().std(unbiased=False).item()),
+            "trace_token_length_mean": float(trace_lengths.mean().item()),
+            "trace_token_length_max": float(trace_lengths.max().item()),
+            "trace_truncated_fraction": float(truncated.mean().item()) if truncated.numel() else 0.0,
+            "closed_think_fraction": float(closed_think.mean().item()) if closed_think.numel() else 0.0,
+            "empty_trace_fraction": float(empty_trace.mean().item()) if empty_trace.numel() else 0.0,
+            "forced_think_close_fraction": float(forced_close.mean().item()) if forced_close.numel() else 0.0,
+            "effective_reference_prefix_length_mean": float(reference_prefix_lengths.mean().item()),
+            "effective_reference_prefix_length_max": float(reference_prefix_lengths.max().item()),
         }
         sample: BatchDebugSample | None = None
         if batch_rows:
+            first_group_end = min(self.cfg.num_generations, len(trace_batch.trace_texts))
+            trace_samples = [
+                TraceDebugSample(
+                    trace_index=idx,
+                    trace=trace_batch.trace_texts[idx],
+                    reward=float(rewards_for_adv[idx].item()),
+                    advantage=float(advantages[idx].item()),
+                    trace_token_length=len(trace_batch.trace_ids[idx]),
+                    is_truncated=len(trace_batch.trace_ids[idx]) >= self.cfg.max_trace_length,
+                    closed_think="</think>" in trace_batch.trace_texts[idx],
+                    forced_think_close=trace_batch.forced_think_close[idx],
+                    forced_suffix_preview=(
+                        self.cfg.forced_thinking_suffix[:120] if trace_batch.forced_think_close[idx] else ""
+                    ),
+                    reference_prefix_length=trace_batch.reference_prefix_lengths[idx],
+                )
+                for idx in range(first_group_end)
+            ]
             sample = BatchDebugSample(
                 prompt=batch_rows[0]["prompt"],
-                trace=trace_batch.trace_texts[0] if trace_batch.trace_texts else "",
                 references=trace_batch.references[0] if trace_batch.references else [],
-                reward=float(rewards_for_adv[0].item()) if rewards_for_adv.numel() else 0.0,
-                advantage=float(advantages[0].item()) if advantages.numel() else 0.0,
+                traces=trace_samples,
                 trace_loss=float(trace_loss.detach().item()),
                 reference_loss=float(reference_loss.detach().item()),
             )
@@ -361,11 +605,18 @@ class MRVFTrainer:
 
     def train(self, raw_train_dataset: Dataset, raw_eval_dataset: Dataset) -> dict[str, Any]:
         train_dataset = prepare_mrvf_dataset(raw_train_dataset, max_reference_samples=self.cfg.num_reference_samples)
-        _ = prepare_mrvf_dataset(raw_eval_dataset, max_reference_samples=self.cfg.num_reference_samples)
+        eval_dataset = prepare_mrvf_dataset(raw_eval_dataset, max_reference_samples=self.cfg.num_reference_samples)
         train_rows = [dict(item) for item in train_dataset]
         if not train_rows:
             msg = "Prepared training dataset is empty."
             raise RuntimeError(msg)
+        eval_rows = [dict(item) for item in eval_dataset]
+        eval_rng = random.Random(self.cfg.seed)
+        eval_rng.shuffle(eval_rows)
+        if self.cfg.eval_sample_size > 0:
+            eval_rows = eval_rows[: self.cfg.eval_sample_size]
+        else:
+            eval_rows = []
 
         batch_size = max(1, self.cfg.per_device_train_batch_size)
         accum = max(1, self.cfg.gradient_accumulation_steps)
@@ -375,6 +626,8 @@ class MRVFTrainer:
         history: list[dict[str, float]] = []
         self._current_step = 0
         pending_sample: BatchDebugSample | None = None
+        pending_metrics: dict[str, float] | None = None
+        step_started_at = time.perf_counter()
 
         while global_step < self.cfg.max_steps:
             self.random.shuffle(train_rows)
@@ -386,6 +639,7 @@ class MRVFTrainer:
                 (loss / accum).backward()
                 history.append(metrics)
                 pending_sample = sample
+                pending_metrics = metrics
                 accum_count += 1
                 if accum_count == accum:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.max_grad_norm)
@@ -396,12 +650,24 @@ class MRVFTrainer:
                     global_step += 1
                     self._current_step = global_step
                     self._save_checkpoint(global_step)
+                    if pending_metrics is not None:
+                        now = time.perf_counter()
+                        self._append_metrics_log(
+                            step=global_step,
+                            metrics=pending_metrics,
+                            step_seconds=now - step_started_at,
+                        )
+                        step_started_at = now
                     self._append_sample_log(step=global_step, sample=pending_sample)
+                    if self.cfg.eval_every_steps > 0 and global_step % self.cfg.eval_every_steps == 0:
+                        self._evaluate_fixed_rows(rows=eval_rows, step=global_step)
                     if global_step >= self.cfg.max_steps:
                         break
 
         self.model.save_pretrained(self.cfg.output_dir)
         self.tokenizer.save_pretrained(self.cfg.output_dir)
+        if self._wandb_run is not None:
+            self._wandb_run.finish()
         return {
             "config": asdict(self.cfg),
             "steps": global_step,

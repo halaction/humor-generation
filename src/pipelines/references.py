@@ -4,11 +4,12 @@ import math
 from collections import defaultdict
 from itertools import batched, combinations
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import faiss
 import numpy as np
 import numpy.typing as npt
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 from datasets import Dataset, load_dataset
@@ -27,13 +28,11 @@ from src.pipelines.keywords import KeywordsPipeline
 from src.settings import settings
 from src.templates import environment
 
-if TYPE_CHECKING:
-    import polars as pl
-
 logger = get_logger(__name__)
 
 _INDEX_ID_STORAGE = "faiss_add_with_ids_int64_v1"
 _SPLITS = ("train", "validation", "test")
+_EMBEDDING_VALUE_LIMIT = 1_000_000.0
 
 
 class ReferencesPipeline(BasePipeline):
@@ -51,6 +50,7 @@ class ReferencesPipeline(BasePipeline):
         self.root_dir = output_dir or DATA_DIR / self.config.hf_config_name
         self.output_dir = self.root_dir / "full"
 
+        self._owns_client = client is None
         self.client = client or AsyncOpenAI(
             base_url=settings.OPENAI_BASE_URL,
             api_key=settings.OPENAI_API_KEY,
@@ -79,8 +79,10 @@ class ReferencesPipeline(BasePipeline):
         if vectors.size == 0:
             return
 
+        np.nan_to_num(vectors, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        np.clip(vectors, -_EMBEDDING_VALUE_LIMIT, _EMBEDDING_VALUE_LIMIT, out=vectors)
         norms = np.linalg.norm(vectors, axis=1)
-        valid_mask = norms > 0
+        valid_mask = np.isfinite(norms) & (norms > 0)
         vectors[valid_mask] = vectors[valid_mask] / norms[valid_mask, np.newaxis]
 
     def _get_table(self, write_buffer: list[ReferencesOutputs]) -> pa.Table:
@@ -166,7 +168,7 @@ class ReferencesPipeline(BasePipeline):
             return None
 
         metadata = json.loads(self.meta_path.read_text(encoding="utf-8"))
-        effective_nlist = min(self.config.faiss_nlist, max(1, expected_rows))
+        effective_nlist = self._effective_faiss_nlist(expected_rows)
         if metadata.get("model") != self.config.model:
             return None
         if metadata.get("dimensions") != self.config.dimensions:
@@ -195,6 +197,15 @@ class ReferencesPipeline(BasePipeline):
         )
         return index
 
+    def _effective_faiss_nlist(self, expected_rows: int) -> int:
+        if expected_rows <= 0:
+            return 1
+
+        training_rows = min(self.config.faiss_train_size, expected_rows)
+        row_cap = max(1, expected_rows // 100)
+        training_cap = max(1, training_rows // 40)
+        return min(self.config.faiss_nlist, row_cap, training_cap)
+
     def _build_faiss_index(self, embeddings: Dataset) -> faiss.IndexIVFFlat:
         expected_rows = len(embeddings)
         cached_index = self._load_faiss_index(expected_rows=expected_rows)
@@ -202,7 +213,7 @@ class ReferencesPipeline(BasePipeline):
             return cached_index
 
         self.index_dir.mkdir(parents=True, exist_ok=True)
-        effective_nlist = min(self.config.faiss_nlist, max(1, expected_rows))
+        effective_nlist = self._effective_faiss_nlist(expected_rows)
         logger.info(
             "index.build.start",
             rows=expected_rows,
@@ -376,13 +387,13 @@ class ReferencesPipeline(BasePipeline):
                 scores=output_scores,
             )
 
-    @staticmethod
-    def _deduplicate_dataset(dataset: Dataset) -> Dataset:
+    def _deduplicate_dataset(self, dataset: Dataset) -> Dataset:
         if len(dataset) == 0:
             return dataset
 
         frame = cast("pl.DataFrame", dataset.to_polars())
         deduplicated = frame.unique(subset=["keywords"], keep="first", maintain_order=True)
+        deduplicated = deduplicated.filter(pl.col("references").list.len() >= self.config.min_references)
         deduplicated = deduplicated.drop("id").with_row_index("id").select(["id", "keywords", "references", "scores"])
 
         return Dataset.from_polars(deduplicated)
@@ -437,6 +448,7 @@ class ReferencesPipeline(BasePipeline):
             split="train",
         )
         dataset = self._deduplicate_dataset(dataset)
+        self._write_split_dataset(split="full", dataset=dataset)
         split_datasets = self._train_test_split(dataset)
 
         for split, split_dataset in split_datasets.items():
@@ -450,61 +462,64 @@ class ReferencesPipeline(BasePipeline):
         resume: bool = False,
     ) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.next_part_index = self._get_next_part_index()
+        try:
+            self.next_part_index = self._get_next_part_index()
 
-        keywords_frame = cast("pl.DataFrame", keywords.to_polars())
-        jokes_frame = cast("pl.DataFrame", jokes.to_polars())
-        joined_frame = jokes_frame.join(keywords_frame, on="id", how="inner").select(["id", "text", "keywords"])
-        dataset = Dataset.from_polars(joined_frame)
+            keywords_frame = cast("pl.DataFrame", keywords.to_polars())
+            jokes_frame = cast("pl.DataFrame", jokes.to_polars())
+            joined_frame = jokes_frame.join(keywords_frame, on="id", how="inner").select(["id", "text", "keywords"])
+            dataset = Dataset.from_polars(joined_frame)
 
-        dataset = self._check_progress(dataset, resume)
+            dataset = self._check_progress(dataset, resume)
 
-        dataset = dataset.batch(self.config.input_batch_size)
+            dataset = dataset.batch(self.config.input_batch_size)
 
-        faiss_index = self._build_faiss_index(embeddings)
-        jokes_mapping = self._build_jokes_lookup(jokes)
+            faiss_index = self._build_faiss_index(embeddings)
+            jokes_mapping = self._build_jokes_lookup(jokes)
 
-        write_buffer: list[ReferencesOutputs] = []
-        semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
-        pending_tasks: set[asyncio.Task[ReferencesOutputs | None]] = set()
+            write_buffer: list[ReferencesOutputs] = []
+            semaphore = asyncio.Semaphore(self.config.max_parallel_requests)
+            pending_tasks: set[asyncio.Task[ReferencesOutputs | None]] = set()
 
-        for batch in tqdm(dataset):
-            batch = cast("dict[str, list[Any]]", batch)
-            inputs = ReferencesInputs(
-                id=cast("list[int]", batch["id"]),
-                keywords=cast("list[list[str]]", batch["keywords"]),
-            )
-
-            task = asyncio.create_task(
-                self._retrieve_references(
-                    inputs=inputs,
-                    semaphore=semaphore,
-                    faiss_index=faiss_index,
-                    jokes_mapping=jokes_mapping,
+            for batch in tqdm(dataset):
+                batch = cast("dict[str, list[Any]]", batch)
+                inputs = ReferencesInputs(
+                    id=cast("list[int]", batch["id"]),
+                    keywords=cast("list[list[str]]", batch["keywords"]),
                 )
-            )
-            pending_tasks.add(task)
 
-            if len(pending_tasks) >= self.config.max_parallel_requests:
+                task = asyncio.create_task(
+                    self._retrieve_references(
+                        inputs=inputs,
+                        semaphore=semaphore,
+                        faiss_index=faiss_index,
+                        jokes_mapping=jokes_mapping,
+                    )
+                )
+                pending_tasks.add(task)
+
+                if len(pending_tasks) >= self.config.max_parallel_requests:
+                    await self._wait_one(
+                        pending_tasks=pending_tasks,
+                        write_buffer=write_buffer,
+                    )
+
+            while pending_tasks:
                 await self._wait_one(
                     pending_tasks=pending_tasks,
                     write_buffer=write_buffer,
                 )
 
-        while pending_tasks:
-            await self._wait_one(
-                pending_tasks=pending_tasks,
-                write_buffer=write_buffer,
+            self._flush_buffer(write_buffer)
+
+            logger.info(
+                "run.done",
+                model=self.config.model,
+                output_dir=str(self.output_dir),
+                top_k=self.config.top_k,
             )
-
-        self._flush_buffer(write_buffer)
-
-        logger.info(
-            "run.done",
-            model=self.config.model,
-            output_dir=str(self.output_dir),
-            top_k=self.config.top_k,
-        )
+        finally:
+            await self._close_client()
 
     def build(
         self,
@@ -519,7 +534,7 @@ class ReferencesPipeline(BasePipeline):
 
         embeddings_dir = DATA_DIR / config.embeddings.hf_config_name
         if not embeddings_dir.exists():
-            EmbeddingsPipeline().build(split=embeddings_split, resume=True)
+            EmbeddingsPipeline().build(jokes_split=config.embeddings.jokes_split, resume=True)
 
         keywords_dir = DATA_DIR / config.keywords.hf_config_name
         if not keywords_dir.exists():
