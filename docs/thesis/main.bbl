@@ -177,41 +177,6 @@
     \field{year}{2025}
   \endentry
 
-  \entry{demarez2024thinc}{misc}{}{}
-    \name{author}{3}{}{%
-      {{hash=DMV}{%
-         family={De\bibnamedelima Marez},
-         familyi={D\bibinitperiod\bibinitdelim M\bibinitperiod},
-         given={Victor},
-         giveni={V\bibinitperiod},
-      }}%
-      {{hash=WT}{%
-         family={Winters},
-         familyi={W\bibinitperiod},
-         given={Tim},
-         giveni={T\bibinitperiod},
-      }}%
-      {{hash=RTA}{%
-         family={Rigouts\bibnamedelima Terryn},
-         familyi={R\bibinitperiod\bibinitdelim T\bibinitperiod},
-         given={Ayla},
-         giveni={A\bibinitperiod},
-      }}%
-    }
-    \strng{namehash}{DMVWTRTA1}
-    \strng{fullhash}{DMVWTRTA1}
-    \field{labelnamesource}{author}
-    \field{labeltitlesource}{title}
-    \field{sortinit}{D}
-    \field{sortinithash}{D}
-    \field{note}{arXiv:2409.01232}
-    \field{title}{{THInC}: A theory-driven framework for computational humor detection}
-    \verb{url}
-    \verb https://arxiv.org/abs/2409.01232
-    \endverb
-    \field{year}{2024}
-  \endentry
-
   \entry{DeepSeek2025}{misc}{}{}
     \name{author}{1}{}{%
       {{hash=D}{%
@@ -268,6 +233,65 @@
     \verb https://arxiv.org/abs/2210.10760
     \endverb
     \field{year}{2023}
+  \endentry
+
+  \entry{Gunjal2025}{misc}{}{}
+    \name{author}{7}{}{%
+      {{hash=GA}{%
+         family={Gunjal},
+         familyi={G\bibinitperiod},
+         given={Akul},
+         giveni={A\bibinitperiod},
+      }}%
+      {{hash=WA}{%
+         family={Wang},
+         familyi={W\bibinitperiod},
+         given={Alex},
+         giveni={A\bibinitperiod},
+      }}%
+      {{hash=LE}{%
+         family={Lau},
+         familyi={L\bibinitperiod},
+         given={Esther},
+         giveni={E\bibinitperiod},
+      }}%
+      {{hash=NV}{%
+         family={Nath},
+         familyi={N\bibinitperiod},
+         given={Vedaant},
+         giveni={V\bibinitperiod},
+      }}%
+      {{hash=HY}{%
+         family={He},
+         familyi={H\bibinitperiod},
+         given={Yichao},
+         giveni={Y\bibinitperiod},
+      }}%
+      {{hash=LB}{%
+         family={Liu},
+         familyi={L\bibinitperiod},
+         given={Bo},
+         giveni={B\bibinitperiod},
+      }}%
+      {{hash=HS}{%
+         family={Hendryx},
+         familyi={H\bibinitperiod},
+         given={Sean},
+         giveni={S\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{GA+1}
+    \strng{fullhash}{GAWALENVHYLBHS1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{sortinit}{G}
+    \field{sortinithash}{G}
+    \field{note}{arXiv:2507.17746}
+    \field{title}{Rubrics as rewards: Reinforcement learning beyond verifiable domains}
+    \verb{url}
+    \verb https://doi.org/10.48550/arXiv.2507.17746
+    \endverb
+    \field{year}{2025}
   \endentry
 
   \entry{Hashemi2024}{inproceedings}{}{}
